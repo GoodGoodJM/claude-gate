@@ -52,8 +52,8 @@ func (sm *StickyManager) Stop() {
 func (sm *StickyManager) Resolve(gateTokenID string) (string, bool) {
 	// Check in-memory cache first.
 	if v, ok := sm.cache.Load(gateTokenID); ok {
-		entry := v.(*stickyEntry)
-		if time.Now().Before(entry.expiresAt) {
+		entry, _ := v.(*stickyEntry)
+		if entry != nil && time.Now().Before(entry.expiresAt) {
 			return entry.realTokenID, true
 		}
 		sm.cache.Delete(gateTokenID)
@@ -103,11 +103,11 @@ func (sm *StickyManager) cleanupLoop(ctx context.Context) {
 func (sm *StickyManager) cleanup() {
 	now := time.Now()
 	sm.cache.Range(func(key, value any) bool {
-		entry := value.(*stickyEntry)
-		if now.After(entry.expiresAt) {
+		entry, _ := value.(*stickyEntry)
+		if entry != nil && now.After(entry.expiresAt) {
 			sm.cache.Delete(key)
 		}
 		return true
 	})
-	sm.store.DeleteExpiredStickySessions()
+	_, _ = sm.store.DeleteExpiredStickySessions()
 }

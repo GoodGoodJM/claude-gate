@@ -86,7 +86,7 @@ func (h *AdminHandler) Register(mux *http.ServeMux, secret string) {
 func writeJSON(w http.ResponseWriter, status int, data any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(map[string]any{"data": data})
+	_ = json.NewEncoder(w).Encode(map[string]any{"data": data})
 }
 
 // --- Real Token handlers ---

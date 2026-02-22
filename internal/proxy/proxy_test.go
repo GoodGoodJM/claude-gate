@@ -162,7 +162,7 @@ func TestProxyHandler_InvalidToken(t *testing.T) {
 	}
 
 	var resp map[string]string
-	json.NewDecoder(rec.Body).Decode(&resp)
+	_ = json.NewDecoder(rec.Body).Decode(&resp)
 	if resp["error"] == "" {
 		t.Error("expected error message in response")
 	}
@@ -191,7 +191,7 @@ func TestProxyHandler_TokenReplacement(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		receivedAuth = r.Header.Get("Authorization")
 		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(`{"model":"claude-sonnet-4-20250514","usage":{"input_tokens":1,"output_tokens":1}}`))
+		_, _ = w.Write([]byte(`{"model":"claude-sonnet-4-20250514","usage":{"input_tokens":1,"output_tokens":1}}`))
 	}))
 	defer upstream.Close()
 

@@ -12,8 +12,8 @@ import (
 func TestManager_ResolveToken_RoundRobin(t *testing.T) {
 	s := testutil.NewTestStore(t)
 
-	s.CreateRealToken("tok1", "acc1", "ref1")
-	s.CreateRealToken("tok2", "acc2", "ref2")
+	_, _ = s.CreateRealToken("tok1", "acc1", "ref1")
+	_, _ = s.CreateRealToken("tok2", "acc2", "ref2")
 
 	m := NewManager(s, 5, 10*time.Minute)
 	if err := m.Start(context.Background()); err != nil {
@@ -40,8 +40,8 @@ func TestManager_ResolveToken_RoundRobin(t *testing.T) {
 func TestManager_ResolveToken_StickySession(t *testing.T) {
 	s := testutil.NewTestStore(t)
 
-	s.CreateRealToken("tok1", "acc1", "ref1")
-	s.CreateRealToken("tok2", "acc2", "ref2")
+	_, _ = s.CreateRealToken("tok1", "acc1", "ref1")
+	_, _ = s.CreateRealToken("tok2", "acc2", "ref2")
 
 	m := NewManager(s, 5, 10*time.Minute)
 	if err := m.Start(context.Background()); err != nil {
@@ -72,7 +72,7 @@ func TestManager_ResolveToken_StickySession(t *testing.T) {
 func TestManager_ResolveToken_StickyExpiry(t *testing.T) {
 	s := testutil.NewTestStore(t)
 
-	s.CreateRealToken("tok1", "acc1", "ref1")
+	_, _ = s.CreateRealToken("tok1", "acc1", "ref1")
 
 	m := NewManager(s, 5, 1*time.Millisecond) // Very short TTL.
 	if err := m.Start(context.Background()); err != nil {
@@ -183,7 +183,7 @@ func TestManager_RefreshPool(t *testing.T) {
 		t.Fatalf("expected 0 tokens initially, got %d", m.pool.Len())
 	}
 
-	s.CreateRealToken("tok1", "acc1", "ref1")
+	_, _ = s.CreateRealToken("tok1", "acc1", "ref1")
 	if err := m.RefreshPool(); err != nil {
 		t.Fatalf("refresh: %v", err)
 	}
@@ -196,8 +196,8 @@ func TestManager_RefreshPool(t *testing.T) {
 func TestManager_StickyFallsThrough_WhenTokenDeactivated(t *testing.T) {
 	s := testutil.NewTestStore(t)
 
-	s.CreateRealToken("tok1", "acc1", "ref1")
-	s.CreateRealToken("tok2", "acc2", "ref2")
+	_, _ = s.CreateRealToken("tok1", "acc1", "ref1")
+	_, _ = s.CreateRealToken("tok2", "acc2", "ref2")
 
 	m := NewManager(s, 1, 10*time.Minute)
 	if err := m.Start(context.Background()); err != nil {

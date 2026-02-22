@@ -113,9 +113,9 @@ func TestGetRealTokenNotFound(t *testing.T) {
 func TestListRealTokens(t *testing.T) {
 	s := newTestStore(t)
 
-	s.CreateRealToken("a", "a1", "r1")
-	s.CreateRealToken("b", "a2", "r2")
-	s.CreateRealToken("c", "a3", "r3")
+	_, _ = s.CreateRealToken("a", "a1", "r1")
+	_, _ = s.CreateRealToken("b", "a2", "r2")
+	_, _ = s.CreateRealToken("c", "a3", "r3")
 
 	tokens, err := s.ListRealTokens()
 	if err != nil {
@@ -191,8 +191,8 @@ func TestSetRealTokenActive(t *testing.T) {
 	}
 
 	// Reactivate -- should reset failure_count
-	s.IncrementRealTokenFailure(rt.ID)
-	s.IncrementRealTokenFailure(rt.ID)
+	_ = s.IncrementRealTokenFailure(rt.ID)
+	_ = s.IncrementRealTokenFailure(rt.ID)
 	got, _ = s.GetRealToken(rt.ID)
 	if got.FailureCount != 2 {
 		t.Fatalf("FailureCount = %d, want 2", got.FailureCount)
@@ -298,11 +298,11 @@ func TestListActiveRealTokens(t *testing.T) {
 
 	// rt2: increment failures past threshold
 	for i := 0; i < 5; i++ {
-		s.IncrementRealTokenFailure(rt2.ID)
+		_ = s.IncrementRealTokenFailure(rt2.ID)
 	}
 
 	// rt3: deactivate
-	s.SetRealTokenActive(rt3.ID, false)
+	_ = s.SetRealTokenActive(rt3.ID, false)
 
 	// maxFailures=3 should only include rt1
 	tokens, err := s.ListActiveRealTokens(3)
@@ -420,8 +420,8 @@ func TestGetGateTokenByTokenNotFound(t *testing.T) {
 func TestListGateTokens(t *testing.T) {
 	s := newTestStore(t)
 
-	s.CreateGateToken("g1")
-	s.CreateGateToken("g2")
+	_, _ = s.CreateGateToken("g1")
+	_, _ = s.CreateGateToken("g2")
 
 	tokens, err := s.ListGateTokens()
 	if err != nil {
@@ -640,7 +640,7 @@ func TestGetUsageStats(t *testing.T) {
 		{GateTokenID: gt.ID, RealTokenID: rt.ID, Model: "m", InputTokens: 100, OutputTokens: 50, CacheCreationInputTokens: 10, CacheReadInputTokens: 5, RequestPath: "/a", StatusCode: 200},
 		{GateTokenID: gt.ID, RealTokenID: rt.ID, Model: "m", InputTokens: 200, OutputTokens: 100, CacheCreationInputTokens: 20, CacheReadInputTokens: 10, RequestPath: "/b", StatusCode: 200},
 	}
-	s.InsertUsageLogs(batch)
+	_ = s.InsertUsageLogs(batch)
 
 	stats, err := s.GetUsageStats(since)
 	if err != nil {
@@ -684,9 +684,9 @@ func TestGetUsageStatsByRealToken(t *testing.T) {
 
 	since := time.Now().UTC().Add(-1 * time.Hour)
 
-	s.InsertUsageLog(&UsageLog{GateTokenID: gt.ID, RealTokenID: rt1.ID, Model: "m", InputTokens: 100, OutputTokens: 50, RequestPath: "/a", StatusCode: 200})
-	s.InsertUsageLog(&UsageLog{GateTokenID: gt.ID, RealTokenID: rt1.ID, Model: "m", InputTokens: 200, OutputTokens: 100, RequestPath: "/b", StatusCode: 200})
-	s.InsertUsageLog(&UsageLog{GateTokenID: gt.ID, RealTokenID: rt2.ID, Model: "m", InputTokens: 999, OutputTokens: 888, RequestPath: "/c", StatusCode: 200})
+	_ = s.InsertUsageLog(&UsageLog{GateTokenID: gt.ID, RealTokenID: rt1.ID, Model: "m", InputTokens: 100, OutputTokens: 50, RequestPath: "/a", StatusCode: 200})
+	_ = s.InsertUsageLog(&UsageLog{GateTokenID: gt.ID, RealTokenID: rt1.ID, Model: "m", InputTokens: 200, OutputTokens: 100, RequestPath: "/b", StatusCode: 200})
+	_ = s.InsertUsageLog(&UsageLog{GateTokenID: gt.ID, RealTokenID: rt2.ID, Model: "m", InputTokens: 999, OutputTokens: 888, RequestPath: "/c", StatusCode: 200})
 
 	stats, err := s.GetUsageStatsByRealToken(rt1.ID, since)
 	if err != nil {
@@ -712,8 +712,8 @@ func TestGetUsageStatsByGateToken(t *testing.T) {
 
 	since := time.Now().UTC().Add(-1 * time.Hour)
 
-	s.InsertUsageLog(&UsageLog{GateTokenID: gt1.ID, RealTokenID: rt.ID, Model: "m", InputTokens: 100, OutputTokens: 50, RequestPath: "/a", StatusCode: 200})
-	s.InsertUsageLog(&UsageLog{GateTokenID: gt2.ID, RealTokenID: rt.ID, Model: "m", InputTokens: 999, OutputTokens: 888, RequestPath: "/b", StatusCode: 200})
+	_ = s.InsertUsageLog(&UsageLog{GateTokenID: gt1.ID, RealTokenID: rt.ID, Model: "m", InputTokens: 100, OutputTokens: 50, RequestPath: "/a", StatusCode: 200})
+	_ = s.InsertUsageLog(&UsageLog{GateTokenID: gt2.ID, RealTokenID: rt.ID, Model: "m", InputTokens: 999, OutputTokens: 888, RequestPath: "/b", StatusCode: 200})
 
 	stats, err := s.GetUsageStatsByGateToken(gt1.ID, since)
 	if err != nil {
@@ -735,7 +735,7 @@ func TestListUsageLogs(t *testing.T) {
 	rt, gt := createTestTokens(t, s)
 
 	for i := 0; i < 5; i++ {
-		s.InsertUsageLog(&UsageLog{GateTokenID: gt.ID, RealTokenID: rt.ID, Model: "m", InputTokens: int64(i), RequestPath: "/x", StatusCode: 200})
+		_ = s.InsertUsageLog(&UsageLog{GateTokenID: gt.ID, RealTokenID: rt.ID, Model: "m", InputTokens: int64(i), RequestPath: "/x", StatusCode: 200})
 	}
 
 	// Test limit
@@ -792,10 +792,10 @@ func TestUpsertStickySessionUpdate(t *testing.T) {
 	gt, _ := s.CreateGateToken("gt")
 
 	expires := time.Now().UTC().Add(1 * time.Hour)
-	s.UpsertStickySession(gt.ID, rt1.ID, expires)
+	_ = s.UpsertStickySession(gt.ID, rt1.ID, expires)
 
 	// Upsert with a different real token
-	s.UpsertStickySession(gt.ID, rt2.ID, expires)
+	_ = s.UpsertStickySession(gt.ID, rt2.ID, expires)
 
 	ss, _ := s.GetStickySession(gt.ID)
 	if ss.RealTokenID != rt2.ID {
@@ -821,7 +821,7 @@ func TestGetStickySessionExpired(t *testing.T) {
 
 	// Insert with past expiry
 	past := time.Now().UTC().Add(-1 * time.Hour)
-	s.UpsertStickySession(gt.ID, rt.ID, past)
+	_ = s.UpsertStickySession(gt.ID, rt.ID, past)
 
 	ss, err := s.GetStickySession(gt.ID)
 	if err != nil {
@@ -837,7 +837,7 @@ func TestDeleteStickySession(t *testing.T) {
 	rt, gt := createTestTokens(t, s)
 
 	expires := time.Now().UTC().Add(1 * time.Hour)
-	s.UpsertStickySession(gt.ID, rt.ID, expires)
+	_ = s.UpsertStickySession(gt.ID, rt.ID, expires)
 
 	if err := s.DeleteStickySession(gt.ID); err != nil {
 		t.Fatalf("DeleteStickySession: %v", err)
@@ -860,9 +860,9 @@ func TestDeleteExpiredStickySessions(t *testing.T) {
 	past := time.Now().UTC().Add(-1 * time.Hour)
 	future := time.Now().UTC().Add(1 * time.Hour)
 
-	s.UpsertStickySession(gt1.ID, rt.ID, past)
-	s.UpsertStickySession(gt2.ID, rt.ID, past)
-	s.UpsertStickySession(gt3.ID, rt.ID, future)
+	_ = s.UpsertStickySession(gt1.ID, rt.ID, past)
+	_ = s.UpsertStickySession(gt2.ID, rt.ID, past)
+	_ = s.UpsertStickySession(gt3.ID, rt.ID, future)
 
 	n, err := s.DeleteExpiredStickySessions()
 	if err != nil {

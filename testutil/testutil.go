@@ -119,6 +119,6 @@ func NewMockUpstreamJSON(t *testing.T) *httptest.Server {
 				"output_tokens": 15,
 			},
 		}
-		json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(resp)
 	}))
 }

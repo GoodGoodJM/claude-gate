@@ -22,7 +22,7 @@ type GateToken struct {
 
 func generateGateToken() string {
 	b := make([]byte, 20)
-	rand.Read(b)
+	_, _ = rand.Read(b)
 	encoded := base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(b)
 	return "gate-" + strings.ToLower(encoded)
 }

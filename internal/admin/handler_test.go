@@ -36,7 +36,7 @@ func setupTestHandler(t *testing.T) (*AdminHandler, *http.ServeMux, *store.Store
 func authedRequest(method, path string, body any) *http.Request {
 	var buf bytes.Buffer
 	if body != nil {
-		json.NewEncoder(&buf).Encode(body)
+		_ = json.NewEncoder(&buf).Encode(body)
 	}
 	req := httptest.NewRequest(method, path, &buf)
 	req.Header.Set("Authorization", "Bearer "+testAdminSecret)
@@ -164,7 +164,7 @@ func TestCreateRealToken_MissingFields(t *testing.T) {
 
 func TestListRealTokens_OmitsSecrets(t *testing.T) {
 	_, mux, s := setupTestHandler(t)
-	s.CreateRealToken("test", "secret-access", "secret-refresh")
+	_, _ = s.CreateRealToken("test", "secret-access", "secret-refresh")
 
 	req := authedRequest("GET", "/admin/api/real-tokens", nil)
 	rr := doRequest(mux, req)
@@ -231,7 +231,7 @@ func TestDeleteRealToken_NotFound(t *testing.T) {
 func TestActivateRealToken(t *testing.T) {
 	_, mux, s := setupTestHandler(t)
 	tok, _ := s.CreateRealToken("tok", "a", "r")
-	s.SetRealTokenActive(tok.ID, false)
+	_ = s.SetRealTokenActive(tok.ID, false)
 
 	req := authedRequest("POST", "/admin/api/real-tokens/"+tok.ID+"/activate", nil)
 	rr := doRequest(mux, req)
@@ -355,7 +355,7 @@ func TestDeleteGateToken_NotFound(t *testing.T) {
 func TestActivateGateToken(t *testing.T) {
 	_, mux, s := setupTestHandler(t)
 	tok, _ := s.CreateGateToken("tok")
-	s.SetGateTokenActive(tok.ID, false)
+	_ = s.SetGateTokenActive(tok.ID, false)
 
 	req := authedRequest("POST", "/admin/api/gate-tokens/"+tok.ID+"/activate", nil)
 	rr := doRequest(mux, req)
@@ -383,7 +383,7 @@ func TestGetUsage(t *testing.T) {
 	_, mux, s := setupTestHandler(t)
 	rt, _ := s.CreateRealToken("rt", "a", "r")
 	gt, _ := s.CreateGateToken("gt")
-	s.InsertUsageLog(&store.UsageLog{
+	_ = s.InsertUsageLog(&store.UsageLog{
 		GateTokenID: gt.ID,
 		RealTokenID: rt.ID,
 		Model:       "claude-sonnet-4-20250514",
@@ -416,7 +416,7 @@ func TestGetUsageByRealToken(t *testing.T) {
 	_, mux, s := setupTestHandler(t)
 	rt, _ := s.CreateRealToken("rt", "a", "r")
 	gt, _ := s.CreateGateToken("gt")
-	s.InsertUsageLog(&store.UsageLog{
+	_ = s.InsertUsageLog(&store.UsageLog{
 		GateTokenID:  gt.ID,
 		RealTokenID:  rt.ID,
 		Model:        "claude-sonnet-4-20250514",
@@ -446,7 +446,7 @@ func TestGetUsageByGateToken(t *testing.T) {
 	_, mux, s := setupTestHandler(t)
 	rt, _ := s.CreateRealToken("rt", "a", "r")
 	gt, _ := s.CreateGateToken("gt")
-	s.InsertUsageLog(&store.UsageLog{
+	_ = s.InsertUsageLog(&store.UsageLog{
 		GateTokenID:  gt.ID,
 		RealTokenID:  rt.ID,
 		Model:        "claude-sonnet-4-20250514",

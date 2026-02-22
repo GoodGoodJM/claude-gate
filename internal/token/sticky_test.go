@@ -48,7 +48,7 @@ func TestStickyManager_Expiry(t *testing.T) {
 		expiresAt:   time.Now().Add(-1 * time.Hour),
 	})
 	// Remove DB entry so the DB fallback also returns nothing.
-	s.DeleteStickySession(gt.ID)
+	_ = s.DeleteStickySession(gt.ID)
 
 	_, ok := sm.Resolve(gt.ID)
 	if ok {
@@ -93,8 +93,8 @@ func TestStickyManager_Rebind(t *testing.T) {
 	rt1, _ := s.CreateRealToken("real1", "acc1", "ref1")
 	rt2, _ := s.CreateRealToken("real2", "acc2", "ref2")
 
-	sm.Bind(gt.ID, rt1.ID, 10*time.Minute)
-	sm.Bind(gt.ID, rt2.ID, 10*time.Minute)
+	_ = sm.Bind(gt.ID, rt1.ID, 10*time.Minute)
+	_ = sm.Bind(gt.ID, rt2.ID, 10*time.Minute)
 
 	realID, ok := sm.Resolve(gt.ID)
 	if !ok {

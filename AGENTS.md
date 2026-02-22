@@ -1,6 +1,6 @@
-# CLAUDE.md
+# AGENTS.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides guidance to AI coding agents when working with code in this repository.
 
 ## What is this?
 
@@ -53,6 +53,19 @@ SQLite WAL 모드, read/write 커넥션 분리. `writeDB`는 `MaxOpenConns=1`, `
 ### Admin API 인증
 
 `Authorization: Bearer <CLAUDE_GATE_ADMIN_SECRET>`. 각 route에 개별적으로 auth middleware 적용 (Go 1.22+ method-based mux 패턴 사용으로 sub-mux wrapping 불가).
+
+## 코드 검증 (반드시 커밋 전 실행)
+
+코드를 수정한 후 커밋하기 전에 **반드시** 아래를 로컬에서 실행하여 통과를 확인해야 한다:
+
+```bash
+make lint           # golangci-lint (errcheck 등 포함)
+make test           # go test -race ./...
+```
+
+lint에서 자주 걸리는 항목:
+- **errcheck**: 에러 반환값을 무시하면 안 됨. 의도적으로 무시할 경우 `_ =` 사용
+- **type assertion**: `v.(*Type)` 대신 `v, _ := value.(*Type)` comma-ok 패턴 사용
 
 ## 개발 시 주의사항
 

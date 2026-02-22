@@ -9,9 +9,9 @@ import (
 func TestTokenPool_RoundRobin(t *testing.T) {
 	s := testutil.NewTestStore(t)
 
-	s.CreateRealToken("tok1", "acc1", "ref1")
-	s.CreateRealToken("tok2", "acc2", "ref2")
-	s.CreateRealToken("tok3", "acc3", "ref3")
+	_, _ = s.CreateRealToken("tok1", "acc1", "ref1")
+	_, _ = s.CreateRealToken("tok2", "acc2", "ref2")
+	_, _ = s.CreateRealToken("tok3", "acc3", "ref3")
 
 	pool := NewTokenPool(s, 5)
 	if err := pool.Refresh(); err != nil {
@@ -99,7 +99,7 @@ func TestTokenPool_FiltersInactiveTokens(t *testing.T) {
 
 	t1, _ := s.CreateRealToken("active", "acc1", "ref1")
 	t2, _ := s.CreateRealToken("inactive", "acc2", "ref2")
-	s.SetRealTokenActive(t2.ID, false)
+	_ = s.SetRealTokenActive(t2.ID, false)
 
 	pool := NewTokenPool(s, 5)
 	if err := pool.Refresh(); err != nil {
@@ -127,7 +127,7 @@ func TestTokenPool_FiltersHighFailureTokens(t *testing.T) {
 
 	// Push t2 to 3 failures with maxFailures=3.
 	for i := 0; i < 3; i++ {
-		s.IncrementRealTokenFailure(t2.ID)
+		_ = s.IncrementRealTokenFailure(t2.ID)
 	}
 
 	pool := NewTokenPool(s, 3)
@@ -154,7 +154,7 @@ func TestTokenPool_GetByID(t *testing.T) {
 	created, _ := s.CreateRealToken("tok1", "acc1", "ref1")
 
 	pool := NewTokenPool(s, 5)
-	pool.Refresh()
+	_ = pool.Refresh()
 
 	got := pool.GetByID(created.ID)
 	if got == nil {

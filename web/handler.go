@@ -289,6 +289,6 @@ func (h *Handler) renderLayout(w http.ResponseWriter, name string, data any) {
 
 func generateSessionToken() string {
 	b := make([]byte, 32)
-	rand.Read(b)
+	_, _ = rand.Read(b)
 	return hex.EncodeToString(b)
 }

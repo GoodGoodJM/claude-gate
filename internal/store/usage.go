@@ -53,7 +53,7 @@ func (s *Store) InsertUsageLogs(logs []UsageLog) error {
 		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 	)
 	if err != nil {
-		tx.Rollback()
+		_ = tx.Rollback()
 		return fmt.Errorf("prepare stmt: %w", err)
 	}
 	defer stmt.Close()
@@ -66,7 +66,7 @@ func (s *Store) InsertUsageLogs(logs []UsageLog) error {
 			log.RequestPath, log.StatusCode,
 		)
 		if err != nil {
-			tx.Rollback()
+			_ = tx.Rollback()
 			return fmt.Errorf("exec insert: %w", err)
 		}
 	}
