@@ -17,23 +17,25 @@ const sessionCookieName = "claude_gate_session"
 
 // Handler serves the admin web UI.
 type Handler struct {
-	store       *store.Store
-	adminSecret string
-	templates   *template.Template
-	sessions    map[string]time.Time
+	store          *store.Store
+	adminSecret    string
+	templates      *template.Template
+	sessions       map[string]time.Time
+	onPoolChanged  func()
 }
 
 // NewHandler creates a new web UI handler.
-func NewHandler(s *store.Store, adminSecret string) (*Handler, error) {
+func NewHandler(s *store.Store, adminSecret string, onPoolChanged func()) (*Handler, error) {
 	tmpl, err := template.ParseFS(templatesFS, "templates/*.html")
 	if err != nil {
 		return nil, err
 	}
 	return &Handler{
-		store:       s,
-		adminSecret: adminSecret,
-		templates:   tmpl,
-		sessions:    make(map[string]time.Time),
+		store:         s,
+		adminSecret:   adminSecret,
+		templates:     tmpl,
+		sessions:      make(map[string]time.Time),
+		onPoolChanged: onPoolChanged,
 	}, nil
 }
 
@@ -184,6 +186,7 @@ func (h *Handler) realTokenCreate(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	h.notifyPoolChanged()
 	http.Redirect(w, r, "/admin/real-tokens?flash=Token+created", http.StatusSeeOther)
 }
 
@@ -193,6 +196,7 @@ func (h *Handler) realTokenActivate(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	h.notifyPoolChanged()
 	http.Redirect(w, r, "/admin/real-tokens?flash=Token+activated", http.StatusSeeOther)
 }
 
@@ -202,6 +206,7 @@ func (h *Handler) realTokenDeactivate(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	h.notifyPoolChanged()
 	http.Redirect(w, r, "/admin/real-tokens?flash=Token+deactivated", http.StatusSeeOther)
 }
 
@@ -211,6 +216,7 @@ func (h *Handler) realTokenDelete(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	h.notifyPoolChanged()
 	http.Redirect(w, r, "/admin/real-tokens?flash=Token+deleted", http.StatusSeeOther)
 }
 
@@ -284,6 +290,12 @@ func (h *Handler) renderLayout(w http.ResponseWriter, name string, data any) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := tmpl.ExecuteTemplate(w, "layout", data); err != nil {
 		log.Printf("render layout with %s: %v", name, err)
+	}
+}
+
+func (h *Handler) notifyPoolChanged() {
+	if h.onPoolChanged != nil {
+		h.onPoolChanged()
 	}
 }
 

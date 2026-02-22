@@ -44,7 +44,7 @@ func TestServerBoot(t *testing.T) {
 	adminHandler := admin.NewAdminHandler(db, nil)
 	adminHandler.Register(mux, "test-secret")
 
-	webHandler, err := web.NewHandler(db, "test-secret")
+	webHandler, err := web.NewHandler(db, "test-secret", nil)
 	if err != nil {
 		t.Fatalf("init web handler: %v", err)
 	}

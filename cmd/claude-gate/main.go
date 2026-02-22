@@ -58,7 +58,11 @@ func main() {
 	adminHandler.Register(mux, cfg.AdminSecret)
 
 	// Web UI
-	webHandler, err := web.NewHandler(db, cfg.AdminSecret)
+	webHandler, err := web.NewHandler(db, cfg.AdminSecret, func() {
+		if err := tokenMgr.RefreshPool(); err != nil {
+			log.Printf("failed to refresh token pool: %v", err)
+		}
+	})
 	if err != nil {
 		log.Fatalf("init web handler: %v", err)
 	}
