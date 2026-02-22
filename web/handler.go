@@ -6,35 +6,43 @@ import (
 	"encoding/hex"
 	"html/template"
 	"io/fs"
-	"log"
+	"log/slog"
 	"net/http"
 	"time"
 
 	"github.com/ggmolly/claude-gate/internal/store"
+	"github.com/jellydator/ttlcache/v3"
 )
 
 const sessionCookieName = "claude_gate_session"
 
 // Handler serves the admin web UI.
 type Handler struct {
-	store          *store.Store
-	adminSecret    string
-	templates      *template.Template
-	sessions       map[string]time.Time
-	onPoolChanged  func()
+	store         *store.Store
+	adminSecret   string
+	logger        *slog.Logger
+	templates     *template.Template
+	sessions      *ttlcache.Cache[string, bool]
+	onPoolChanged func()
 }
 
 // NewHandler creates a new web UI handler.
-func NewHandler(s *store.Store, adminSecret string, onPoolChanged func()) (*Handler, error) {
+func NewHandler(s *store.Store, adminSecret string, onPoolChanged func(), logger *slog.Logger) (*Handler, error) {
 	tmpl, err := template.ParseFS(templatesFS, "templates/*.html")
 	if err != nil {
 		return nil, err
 	}
+	sessions := ttlcache.New[string, bool](
+		ttlcache.WithTTL[string, bool](24 * time.Hour),
+	)
+	go sessions.Start()
+
 	return &Handler{
 		store:         s,
 		adminSecret:   adminSecret,
+		logger:        logger,
 		templates:     tmpl,
-		sessions:      make(map[string]time.Time),
+		sessions:      sessions,
 		onPoolChanged: onPoolChanged,
 	}, nil
 }
@@ -69,9 +77,8 @@ func (h *Handler) requireAuth(next http.HandlerFunc) http.HandlerFunc {
 			http.Redirect(w, r, "/admin/login", http.StatusSeeOther)
 			return
 		}
-		expiry, ok := h.sessions[cookie.Value]
-		if !ok || time.Now().After(expiry) {
-			delete(h.sessions, cookie.Value)
+		item := h.sessions.Get(cookie.Value)
+		if item == nil {
 			http.Redirect(w, r, "/admin/login", http.StatusSeeOther)
 			return
 		}
@@ -91,7 +98,7 @@ func (h *Handler) loginSubmit(w http.ResponseWriter, r *http.Request) {
 	}
 
 	token := generateSessionToken()
-	h.sessions[token] = time.Now().Add(24 * time.Hour)
+	h.sessions.Set(token, true, ttlcache.DefaultTTL)
 
 	http.SetCookie(w, &http.Cookie{
 		Name:     sessionCookieName,
@@ -106,7 +113,7 @@ func (h *Handler) loginSubmit(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) logout(w http.ResponseWriter, r *http.Request) {
 	if cookie, err := r.Cookie(sessionCookieName); err == nil {
-		delete(h.sessions, cookie.Value)
+		h.sessions.Delete(cookie.Value)
 	}
 	http.SetCookie(w, &http.Cookie{
 		Name:   sessionCookieName,
@@ -118,19 +125,21 @@ func (h *Handler) logout(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) dashboard(w http.ResponseWriter, r *http.Request) {
-	realTokens, err := h.store.ListRealTokens()
+	ctx := r.Context()
+
+	realTokens, err := h.store.ListRealTokens(ctx)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	gateTokens, err := h.store.ListGateTokens()
+	gateTokens, err := h.store.ListGateTokens(ctx)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	usage24h, err := h.store.GetUsageStats(time.Now().Add(-24 * time.Hour))
+	usage24h, err := h.store.GetUsageStats(ctx, time.Now().Add(-24*time.Hour))
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -162,7 +171,7 @@ func (h *Handler) dashboard(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) realTokensPage(w http.ResponseWriter, r *http.Request) {
-	tokens, err := h.store.ListRealTokens()
+	tokens, err := h.store.ListRealTokens(r.Context())
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -181,7 +190,7 @@ func (h *Handler) realTokenCreate(w http.ResponseWriter, r *http.Request) {
 	accessToken := r.FormValue("access_token")
 	refreshToken := r.FormValue("refresh_token")
 
-	_, err := h.store.CreateRealToken(name, accessToken, refreshToken)
+	_, err := h.store.CreateRealToken(r.Context(), name, accessToken, refreshToken)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -192,7 +201,7 @@ func (h *Handler) realTokenCreate(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) realTokenActivate(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	if err := h.store.SetRealTokenActive(id, true); err != nil {
+	if err := h.store.SetRealTokenActive(r.Context(), id, true); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -202,7 +211,7 @@ func (h *Handler) realTokenActivate(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) realTokenDeactivate(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	if err := h.store.SetRealTokenActive(id, false); err != nil {
+	if err := h.store.SetRealTokenActive(r.Context(), id, false); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -212,7 +221,7 @@ func (h *Handler) realTokenDeactivate(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) realTokenDelete(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	if err := h.store.DeleteRealToken(id); err != nil {
+	if err := h.store.DeleteRealToken(r.Context(), id); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -221,7 +230,7 @@ func (h *Handler) realTokenDelete(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) gateTokensPage(w http.ResponseWriter, r *http.Request) {
-	tokens, err := h.store.ListGateTokens()
+	tokens, err := h.store.ListGateTokens(r.Context())
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -238,7 +247,7 @@ func (h *Handler) gateTokensPage(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) gateTokenCreate(w http.ResponseWriter, r *http.Request) {
 	name := r.FormValue("name")
-	gt, err := h.store.CreateGateToken(name)
+	gt, err := h.store.CreateGateToken(r.Context(), name)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -248,7 +257,7 @@ func (h *Handler) gateTokenCreate(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) gateTokenActivate(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	if err := h.store.SetGateTokenActive(id, true); err != nil {
+	if err := h.store.SetGateTokenActive(r.Context(), id, true); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -257,7 +266,7 @@ func (h *Handler) gateTokenActivate(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) gateTokenDeactivate(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	if err := h.store.SetGateTokenActive(id, false); err != nil {
+	if err := h.store.SetGateTokenActive(r.Context(), id, false); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -266,7 +275,7 @@ func (h *Handler) gateTokenDeactivate(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) gateTokenDelete(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	if err := h.store.DeleteGateToken(id); err != nil {
+	if err := h.store.DeleteGateToken(r.Context(), id); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -276,7 +285,7 @@ func (h *Handler) gateTokenDelete(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) render(w http.ResponseWriter, name string, data any) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := h.templates.ExecuteTemplate(w, name, data); err != nil {
-		log.Printf("render template %s: %v", name, err)
+		h.logger.Error("render template failed", "template", name, "error", err)
 	}
 }
 
@@ -289,7 +298,7 @@ func (h *Handler) renderLayout(w http.ResponseWriter, name string, data any) {
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := tmpl.ExecuteTemplate(w, "layout", data); err != nil {
-		log.Printf("render layout with %s: %v", name, err)
+		h.logger.Error("render layout failed", "template", name, "error", err)
 	}
 }
 

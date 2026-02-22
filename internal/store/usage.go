@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"fmt"
 	"time"
 )
@@ -27,8 +28,8 @@ type UsageStats struct {
 	RequestCount             int64 `json:"request_count"`
 }
 
-func (s *Store) InsertUsageLog(log *UsageLog) error {
-	_, err := s.writeDB.Exec(
+func (s *Store) InsertUsageLog(ctx context.Context, log *UsageLog) error {
+	_, err := s.writeDB.ExecContext(ctx,
 		`INSERT INTO usage_logs (gate_token_id, real_token_id, model, input_tokens, output_tokens, cache_creation_input_tokens, cache_read_input_tokens, request_path, status_code)
 		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		log.GateTokenID, log.RealTokenID, log.Model,
@@ -42,8 +43,8 @@ func (s *Store) InsertUsageLog(log *UsageLog) error {
 	return nil
 }
 
-func (s *Store) InsertUsageLogs(logs []UsageLog) error {
-	tx, err := s.writeDB.Begin()
+func (s *Store) InsertUsageLogs(ctx context.Context, logs []UsageLog) error {
+	tx, err := s.writeDB.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
 	}
@@ -74,8 +75,8 @@ func (s *Store) InsertUsageLogs(logs []UsageLog) error {
 	return tx.Commit()
 }
 
-func (s *Store) GetUsageStats(since time.Time) (*UsageStats, error) {
-	row := s.readDB.QueryRow(
+func (s *Store) GetUsageStats(ctx context.Context, since time.Time) (*UsageStats, error) {
+	row := s.readDB.QueryRowContext(ctx,
 		`SELECT COALESCE(SUM(input_tokens), 0), COALESCE(SUM(output_tokens), 0),
 		        COALESCE(SUM(cache_creation_input_tokens), 0), COALESCE(SUM(cache_read_input_tokens), 0),
 		        COUNT(*)
@@ -93,8 +94,8 @@ func (s *Store) GetUsageStats(since time.Time) (*UsageStats, error) {
 	return &stats, nil
 }
 
-func (s *Store) GetUsageStatsByRealToken(realTokenID string, since time.Time) (*UsageStats, error) {
-	row := s.readDB.QueryRow(
+func (s *Store) GetUsageStatsByRealToken(ctx context.Context, realTokenID string, since time.Time) (*UsageStats, error) {
+	row := s.readDB.QueryRowContext(ctx,
 		`SELECT COALESCE(SUM(input_tokens), 0), COALESCE(SUM(output_tokens), 0),
 		        COALESCE(SUM(cache_creation_input_tokens), 0), COALESCE(SUM(cache_read_input_tokens), 0),
 		        COUNT(*)
@@ -112,8 +113,8 @@ func (s *Store) GetUsageStatsByRealToken(realTokenID string, since time.Time) (*
 	return &stats, nil
 }
 
-func (s *Store) GetUsageStatsByGateToken(gateTokenID string, since time.Time) (*UsageStats, error) {
-	row := s.readDB.QueryRow(
+func (s *Store) GetUsageStatsByGateToken(ctx context.Context, gateTokenID string, since time.Time) (*UsageStats, error) {
+	row := s.readDB.QueryRowContext(ctx,
 		`SELECT COALESCE(SUM(input_tokens), 0), COALESCE(SUM(output_tokens), 0),
 		        COALESCE(SUM(cache_creation_input_tokens), 0), COALESCE(SUM(cache_read_input_tokens), 0),
 		        COUNT(*)
@@ -131,8 +132,8 @@ func (s *Store) GetUsageStatsByGateToken(gateTokenID string, since time.Time) (*
 	return &stats, nil
 }
 
-func (s *Store) ListUsageLogs(limit, offset int) ([]UsageLog, error) {
-	rows, err := s.readDB.Query(
+func (s *Store) ListUsageLogs(ctx context.Context, limit, offset int) ([]UsageLog, error) {
+	rows, err := s.readDB.QueryContext(ctx,
 		`SELECT id, gate_token_id, real_token_id, model, input_tokens, output_tokens,
 		        cache_creation_input_tokens, cache_read_input_tokens, request_path, status_code, created_at
 		 FROM usage_logs ORDER BY created_at DESC LIMIT ? OFFSET ?`, limit, offset,

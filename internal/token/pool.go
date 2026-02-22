@@ -1,7 +1,9 @@
 package token
 
 import (
+	"context"
 	"errors"
+	"log/slog"
 	"sync"
 	"sync/atomic"
 
@@ -15,6 +17,7 @@ var ErrNoAvailableTokens = errors.New("no available tokens")
 type TokenPool struct {
 	store       *store.Store
 	maxFailures int
+	logger      *slog.Logger
 
 	mu     sync.RWMutex
 	tokens []store.RealToken
@@ -23,22 +26,24 @@ type TokenPool struct {
 }
 
 // NewTokenPool creates a new TokenPool. Call Refresh to load initial tokens.
-func NewTokenPool(s *store.Store, maxFailures int) *TokenPool {
+func NewTokenPool(s *store.Store, maxFailures int, logger *slog.Logger) *TokenPool {
 	return &TokenPool{
 		store:       s,
 		maxFailures: maxFailures,
+		logger:      logger,
 	}
 }
 
 // Refresh reloads the token list from the database.
-func (p *TokenPool) Refresh() error {
-	tokens, err := p.store.ListActiveRealTokens(p.maxFailures)
+func (p *TokenPool) Refresh(ctx context.Context) error {
+	tokens, err := p.store.ListActiveRealTokens(ctx, p.maxFailures)
 	if err != nil {
 		return err
 	}
 	p.mu.Lock()
 	p.tokens = tokens
 	p.mu.Unlock()
+	p.logger.Debug("pool refreshed", "active_tokens", len(tokens))
 	return nil
 }
 
@@ -55,7 +60,7 @@ func (p *TokenPool) Select(excludeIDs map[string]bool) (*store.RealToken, error)
 	}
 
 	start := p.counter.Add(1) - 1
-	for i := 0; i < n; i++ {
+	for i := range n {
 		idx := int((start + uint64(i)) % uint64(n))
 		t := &tokens[idx]
 		if excludeIDs != nil && excludeIDs[t.ID] {

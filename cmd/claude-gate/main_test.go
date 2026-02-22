@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -9,6 +8,7 @@ import (
 	"time"
 
 	"github.com/ggmolly/claude-gate/internal/admin"
+	"github.com/ggmolly/claude-gate/internal/logging"
 	"github.com/ggmolly/claude-gate/internal/proxy"
 	"github.com/ggmolly/claude-gate/internal/store"
 	"github.com/ggmolly/claude-gate/internal/token"
@@ -24,16 +24,17 @@ func TestServerBoot(t *testing.T) {
 	}
 	defer db.Close()
 
-	tokenMgr := token.NewManager(db, 5, 10*time.Minute)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	logger := logging.Discard()
+
+	tokenMgr := token.NewManager(db, 5, 10*time.Minute, logger)
+	ctx := t.Context()
 
 	if err := tokenMgr.Start(ctx); err != nil {
 		t.Fatalf("start token manager: %v", err)
 	}
 	defer tokenMgr.Stop()
 
-	proxyHandler, cancelWriter, err := proxy.Setup(ctx, db, tokenMgr, "https://api.anthropic.com")
+	proxyHandler, cancelWriter, err := proxy.Setup(ctx, db, tokenMgr, "https://api.anthropic.com", logger)
 	if err != nil {
 		t.Fatalf("setup proxy: %v", err)
 	}
@@ -41,10 +42,10 @@ func TestServerBoot(t *testing.T) {
 
 	mux := http.NewServeMux()
 
-	adminHandler := admin.NewAdminHandler(db, nil)
+	adminHandler := admin.NewAdminHandler(db, nil, logger)
 	adminHandler.Register(mux, "test-secret")
 
-	webHandler, err := web.NewHandler(db, "test-secret", nil)
+	webHandler, err := web.NewHandler(db, "test-secret", nil, logger)
 	if err != nil {
 		t.Fatalf("init web handler: %v", err)
 	}

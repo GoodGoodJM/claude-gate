@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ggmolly/claude-gate/internal/logging"
 	"github.com/ggmolly/claude-gate/internal/token"
 	"github.com/ggmolly/claude-gate/testutil"
 )
@@ -18,28 +19,30 @@ func setupProxy(t *testing.T, upstream *httptest.Server) (*ProxyHandler, <-chan 
 	t.Helper()
 
 	s := testutil.NewTestStore(t)
+	logger := logging.Discard()
+	ctx := context.Background()
 
 	// Create a real token.
-	_, err := s.CreateRealToken("test-real", "sk-real-token-123", "")
+	_, err := s.CreateRealToken(ctx, "test-real", "sk-real-token-123", "")
 	if err != nil {
 		t.Fatalf("create real token: %v", err)
 	}
 
 	// Create a gate token.
-	_, err = s.CreateGateToken("test-gate")
+	_, err = s.CreateGateToken(ctx, "test-gate")
 	if err != nil {
 		t.Fatalf("create gate token: %v", err)
 	}
 
 	// Set up token manager.
-	mgr := token.NewManager(s, 5, 10*time.Minute)
-	if err := mgr.Start(context.Background()); err != nil {
+	mgr := token.NewManager(s, 5, 10*time.Minute, logger)
+	if err := mgr.Start(ctx); err != nil {
 		t.Fatalf("start token manager: %v", err)
 	}
 	t.Cleanup(mgr.Stop)
 
 	ch := make(chan usageEntry, 100)
-	handler, err := NewProxyHandler(s, mgr, upstream.URL, ch)
+	handler, err := NewProxyHandler(s, mgr, upstream.URL, ch, logger)
 	if err != nil {
 		t.Fatalf("create proxy handler: %v", err)
 	}
@@ -53,13 +56,14 @@ func TestProxyHandler_SSEStream(t *testing.T) {
 
 	handler, usageCh := setupProxy(t, upstream)
 	s := testutil.NewTestStore(t)
+	ctx := context.Background()
 
 	// We need the gate token value. Create one in the same store the handler uses.
 	// Reuse the handler's store by getting gate tokens through the proxy's store.
 	_ = s // unused, we use the handler's store directly
 
 	// Get the gate token from the handler's store.
-	gateTokens, err := handler.store.ListGateTokens()
+	gateTokens, err := handler.store.ListGateTokens(ctx)
 	if err != nil || len(gateTokens) == 0 {
 		t.Fatalf("list gate tokens: %v", err)
 	}
@@ -110,8 +114,9 @@ func TestProxyHandler_JSONResponse(t *testing.T) {
 	defer upstream.Close()
 
 	handler, usageCh := setupProxy(t, upstream)
+	ctx := context.Background()
 
-	gateTokens, err := handler.store.ListGateTokens()
+	gateTokens, err := handler.store.ListGateTokens(ctx)
 	if err != nil || len(gateTokens) == 0 {
 		t.Fatalf("list gate tokens: %v", err)
 	}
@@ -196,8 +201,9 @@ func TestProxyHandler_TokenReplacement(t *testing.T) {
 	defer upstream.Close()
 
 	handler, _ := setupProxy(t, upstream)
+	ctx := context.Background()
 
-	gateTokens, _ := handler.store.ListGateTokens()
+	gateTokens, _ := handler.store.ListGateTokens(ctx)
 	gateToken := gateTokens[0]
 
 	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(`{}`))
@@ -217,12 +223,13 @@ func TestProxyHandler_InactiveGateToken(t *testing.T) {
 	defer upstream.Close()
 
 	handler, _ := setupProxy(t, upstream)
+	ctx := context.Background()
 
-	gateTokens, _ := handler.store.ListGateTokens()
+	gateTokens, _ := handler.store.ListGateTokens(ctx)
 	gateToken := gateTokens[0]
 
 	// Deactivate the gate token.
-	if err := handler.store.SetGateTokenActive(gateToken.ID, false); err != nil {
+	if err := handler.store.SetGateTokenActive(ctx, gateToken.ID, false); err != nil {
 		t.Fatalf("deactivate gate token: %v", err)
 	}
 
@@ -237,21 +244,121 @@ func TestProxyHandler_InactiveGateToken(t *testing.T) {
 	}
 }
 
+func TestProxyHandler_RecordFailureOnUpstreamError(t *testing.T) {
+	// Create an upstream that immediately closes the connection to trigger ErrorHandler.
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hj, ok := w.(http.Hijacker)
+		if !ok {
+			t.Fatal("server does not support hijacking")
+		}
+		conn, _, err := hj.Hijack()
+		if err != nil {
+			t.Fatalf("hijack: %v", err)
+		}
+		conn.Close()
+	}))
+	defer upstream.Close()
+
+	handler, _ := setupProxy(t, upstream)
+	ctx := context.Background()
+
+	gateTokens, err := handler.store.ListGateTokens(ctx)
+	if err != nil || len(gateTokens) == 0 {
+		t.Fatalf("list gate tokens: %v", err)
+	}
+	gateToken := gateTokens[0]
+
+	// Get real tokens to check failure count later.
+	realTokensBefore, _ := handler.store.ListRealTokens(ctx)
+	if len(realTokensBefore) == 0 {
+		t.Fatal("no real tokens")
+	}
+	if realTokensBefore[0].FailureCount != 0 {
+		t.Fatalf("expected initial failure count 0, got %d", realTokensBefore[0].FailureCount)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(`{}`))
+	req.Header.Set("Authorization", "Bearer "+gateToken.Token)
+	req.Header.Set("Content-Type", "application/json")
+
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadGateway {
+		t.Errorf("expected 502, got %d", rec.Code)
+	}
+
+	// Verify failure was recorded.
+	rt, err := handler.store.GetRealToken(ctx, realTokensBefore[0].ID)
+	if err != nil {
+		t.Fatalf("get real token: %v", err)
+	}
+	if rt.FailureCount != 1 {
+		t.Errorf("expected failure count 1, got %d", rt.FailureCount)
+	}
+}
+
+func TestProxyHandler_RecordFailureOn5xx(t *testing.T) {
+	// Create an upstream that returns 500 Internal Server Error.
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(`{"error":"internal server error"}`))
+	}))
+	defer upstream.Close()
+
+	handler, _ := setupProxy(t, upstream)
+	ctx := context.Background()
+
+	gateTokens, err := handler.store.ListGateTokens(ctx)
+	if err != nil || len(gateTokens) == 0 {
+		t.Fatalf("list gate tokens: %v", err)
+	}
+	gateToken := gateTokens[0]
+
+	realTokensBefore, _ := handler.store.ListRealTokens(ctx)
+	if len(realTokensBefore) == 0 {
+		t.Fatal("no real tokens")
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(`{}`))
+	req.Header.Set("Authorization", "Bearer "+gateToken.Token)
+	req.Header.Set("Content-Type", "application/json")
+
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Errorf("expected 500, got %d", rec.Code)
+	}
+
+	// Verify failure was recorded via ModifyResponse 5xx check.
+	rt, err := handler.store.GetRealToken(ctx, realTokensBefore[0].ID)
+	if err != nil {
+		t.Fatalf("get real token: %v", err)
+	}
+	if rt.FailureCount != 1 {
+		t.Errorf("expected failure count 1, got %d", rt.FailureCount)
+	}
+}
+
 func TestUsageWriter_BatchFlush(t *testing.T) {
 	s := testutil.NewTestStore(t)
+	ctx := context.Background()
+	logger := logging.Discard()
 
 	// Create tokens for usage logging.
-	rt, _ := s.CreateRealToken("real", "sk-test", "")
-	gt, _ := s.CreateGateToken("gate")
+	rt, _ := s.CreateRealToken(ctx, "real", "sk-test", "")
+	gt, _ := s.CreateGateToken(ctx, "gate")
 
 	ch := make(chan usageEntry, 10)
-	writer := NewUsageWriter(ch, s)
+	writer := NewUsageWriter(ch, s, logger)
 
-	ctx, cancel := context.WithCancel(context.Background())
+	writerCtx, cancel := context.WithCancel(ctx)
 
 	done := make(chan struct{})
 	go func() {
-		writer.Run(ctx)
+		writer.Run(writerCtx)
 		close(done)
 	}()
 
@@ -274,7 +381,7 @@ func TestUsageWriter_BatchFlush(t *testing.T) {
 	<-done
 
 	// Check that usage was logged.
-	logs, err := s.ListUsageLogs(10, 0)
+	logs, err := s.ListUsageLogs(ctx, 10, 0)
 	if err != nil {
 		t.Fatalf("list usage logs: %v", err)
 	}
@@ -289,11 +396,11 @@ func TestUsageWriter_BatchFlush(t *testing.T) {
 	}
 
 	// Check cumulative counters were updated.
-	updatedGT, _ := s.GetGateToken(gt.ID)
+	updatedGT, _ := s.GetGateToken(ctx, gt.ID)
 	if updatedGT.TotalInputTokens != 100 {
 		t.Errorf("gate token TotalInputTokens = %d, want 100", updatedGT.TotalInputTokens)
 	}
-	updatedRT, _ := s.GetRealToken(rt.ID)
+	updatedRT, _ := s.GetRealToken(ctx, rt.ID)
 	if updatedRT.TotalInputTokens != 100 {
 		t.Errorf("real token TotalInputTokens = %d, want 100", updatedRT.TotalInputTokens)
 	}

@@ -3,11 +3,12 @@ package proxy
 import (
 	"encoding/json"
 	"io"
-	"log"
+	"log/slog"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
 	"strings"
+	"sync/atomic"
 
 	"github.com/ggmolly/claude-gate/internal/store"
 	"github.com/ggmolly/claude-gate/internal/token"
@@ -26,14 +27,16 @@ type usageEntry struct {
 // Claude API upstream, replacing gate tokens with real tokens and
 // tapping SSE streams to extract usage information.
 type ProxyHandler struct {
-	store       *store.Store
-	tokenMgr    *token.Manager
-	upstreamURL *url.URL
-	usageCh     chan<- usageEntry
+	store        *store.Store
+	tokenMgr     *token.Manager
+	upstreamURL  *url.URL
+	usageCh      chan<- usageEntry
+	logger       *slog.Logger
+	droppedCount atomic.Int64
 }
 
 // NewProxyHandler creates a new ProxyHandler.
-func NewProxyHandler(s *store.Store, mgr *token.Manager, upstream string, usageCh chan<- usageEntry) (*ProxyHandler, error) {
+func NewProxyHandler(s *store.Store, mgr *token.Manager, upstream string, usageCh chan<- usageEntry, logger *slog.Logger) (*ProxyHandler, error) {
 	u, err := url.Parse(upstream)
 	if err != nil {
 		return nil, err
@@ -43,6 +46,7 @@ func NewProxyHandler(s *store.Store, mgr *token.Manager, upstream string, usageC
 		tokenMgr:    mgr,
 		upstreamURL: u,
 		usageCh:     usageCh,
+		logger:      logger,
 	}, nil
 }
 
@@ -56,14 +60,14 @@ func (h *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	gateTokenStr := strings.TrimPrefix(authHeader, "Bearer ")
 
 	// Look up gate token.
-	gt, err := h.store.GetGateTokenByToken(gateTokenStr)
+	gt, err := h.store.GetGateTokenByToken(r.Context(), gateTokenStr)
 	if err != nil || !gt.IsActive {
 		writeJSONError(w, http.StatusUnauthorized, "invalid or inactive gate token")
 		return
 	}
 
 	// Resolve real token.
-	realToken, err := h.tokenMgr.ResolveToken(gt.ID)
+	realToken, err := h.tokenMgr.ResolveToken(r.Context(), gt.ID)
 	if err != nil {
 		writeJSONError(w, http.StatusBadGateway, "no available upstream tokens")
 		return
@@ -96,10 +100,21 @@ func (h *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				h.sendUsage(gt.ID, realToken.ID, usage, r.URL.Path, resp.StatusCode)
 				resp.Body = io.NopCloser(strings.NewReader(string(body)))
 			}
+
+			// Record failure for upstream 5xx responses.
+			if resp.StatusCode >= 500 {
+				if rfErr := h.tokenMgr.RecordFailure(r.Context(), realToken.ID); rfErr != nil {
+					h.logger.Error("failed to record failure", "real_token", realToken.ID, "error", rfErr)
+				}
+			}
+
 			return nil
 		},
 		ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
 			writeJSONError(w, http.StatusBadGateway, "upstream error: "+err.Error())
+			if rfErr := h.tokenMgr.RecordFailure(r.Context(), realToken.ID); rfErr != nil {
+				h.logger.Error("failed to record failure", "real_token", realToken.ID, "error", rfErr)
+			}
 		},
 	}
 
@@ -116,7 +131,8 @@ func (h *ProxyHandler) sendUsage(gateTokenID, realTokenID string, usage UsageDat
 		StatusCode:  statusCode,
 	}:
 	default:
-		log.Printf("usage channel full, dropping entry for gate=%s", gateTokenID)
+		h.droppedCount.Add(1)
+		h.logger.Warn("usage channel full, dropping entry", "gate", gateTokenID)
 	}
 }
 

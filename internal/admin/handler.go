@@ -3,6 +3,7 @@ package admin
 import (
 	"database/sql"
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"time"
 
@@ -40,17 +41,18 @@ func sanitizeRealToken(t *store.RealToken) RealTokenResponse {
 
 // AdminHandler handles all admin API endpoints.
 type AdminHandler struct {
-	store          *store.Store
-	onPoolChanged  func() // called after real token CRUD to refresh the pool
+	store         *store.Store
+	logger        *slog.Logger
+	onPoolChanged func() // called after real token CRUD to refresh the pool
 }
 
 // NewAdminHandler creates a new AdminHandler.
 // onPoolChanged is an optional callback invoked after real token mutations.
-func NewAdminHandler(s *store.Store, onPoolChanged func()) *AdminHandler {
+func NewAdminHandler(s *store.Store, onPoolChanged func(), logger *slog.Logger) *AdminHandler {
 	if onPoolChanged == nil {
 		onPoolChanged = func() {}
 	}
-	return &AdminHandler{store: s, onPoolChanged: onPoolChanged}
+	return &AdminHandler{store: s, onPoolChanged: onPoolChanged, logger: logger}
 }
 
 // Register registers all admin API routes on the given mux.
@@ -92,7 +94,7 @@ func writeJSON(w http.ResponseWriter, status int, data any) {
 // --- Real Token handlers ---
 
 func (h *AdminHandler) listRealTokens(w http.ResponseWriter, r *http.Request) {
-	tokens, err := h.store.ListRealTokens()
+	tokens, err := h.store.ListRealTokens(r.Context())
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to list real tokens")
 		return
@@ -120,11 +122,12 @@ func (h *AdminHandler) createRealToken(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "name and access_token are required")
 		return
 	}
-	t, err := h.store.CreateRealToken(req.Name, req.AccessToken, req.RefreshToken)
+	t, err := h.store.CreateRealToken(r.Context(), req.Name, req.AccessToken, req.RefreshToken)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to create real token")
 		return
 	}
+	h.logger.Info("real token created", "id", t.ID, "name", req.Name)
 	h.onPoolChanged()
 	writeJSON(w, http.StatusCreated, sanitizeRealToken(t))
 }
@@ -144,7 +147,7 @@ func (h *AdminHandler) updateRealToken(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "name is required")
 		return
 	}
-	err := h.store.UpdateRealToken(id, req.Name)
+	err := h.store.UpdateRealToken(r.Context(), id, req.Name)
 	if err == sql.ErrNoRows {
 		writeError(w, http.StatusNotFound, "real token not found")
 		return
@@ -153,12 +156,13 @@ func (h *AdminHandler) updateRealToken(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to update real token")
 		return
 	}
+	h.logger.Info("real token updated", "id", id, "name", req.Name)
 	writeJSON(w, http.StatusOK, map[string]string{"id": id, "name": req.Name})
 }
 
 func (h *AdminHandler) deleteRealToken(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	err := h.store.DeleteRealToken(id)
+	err := h.store.DeleteRealToken(r.Context(), id)
 	if err == sql.ErrNoRows {
 		writeError(w, http.StatusNotFound, "real token not found")
 		return
@@ -167,13 +171,14 @@ func (h *AdminHandler) deleteRealToken(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to delete real token")
 		return
 	}
+	h.logger.Info("real token deleted", "id", id)
 	h.onPoolChanged()
 	writeJSON(w, http.StatusOK, map[string]string{"id": id})
 }
 
 func (h *AdminHandler) activateRealToken(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	err := h.store.SetRealTokenActive(id, true)
+	err := h.store.SetRealTokenActive(r.Context(), id, true)
 	if err == sql.ErrNoRows {
 		writeError(w, http.StatusNotFound, "real token not found")
 		return
@@ -182,13 +187,14 @@ func (h *AdminHandler) activateRealToken(w http.ResponseWriter, r *http.Request)
 		writeError(w, http.StatusInternalServerError, "failed to activate real token")
 		return
 	}
+	h.logger.Info("real token activated", "id", id)
 	h.onPoolChanged()
 	writeJSON(w, http.StatusOK, map[string]string{"id": id, "status": "active"})
 }
 
 func (h *AdminHandler) deactivateRealToken(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	err := h.store.SetRealTokenActive(id, false)
+	err := h.store.SetRealTokenActive(r.Context(), id, false)
 	if err == sql.ErrNoRows {
 		writeError(w, http.StatusNotFound, "real token not found")
 		return
@@ -197,6 +203,7 @@ func (h *AdminHandler) deactivateRealToken(w http.ResponseWriter, r *http.Reques
 		writeError(w, http.StatusInternalServerError, "failed to deactivate real token")
 		return
 	}
+	h.logger.Info("real token deactivated", "id", id)
 	h.onPoolChanged()
 	writeJSON(w, http.StatusOK, map[string]string{"id": id, "status": "inactive"})
 }
@@ -204,7 +211,7 @@ func (h *AdminHandler) deactivateRealToken(w http.ResponseWriter, r *http.Reques
 // --- Gate Token handlers ---
 
 func (h *AdminHandler) listGateTokens(w http.ResponseWriter, r *http.Request) {
-	tokens, err := h.store.ListGateTokens()
+	tokens, err := h.store.ListGateTokens(r.Context())
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to list gate tokens")
 		return
@@ -229,11 +236,12 @@ func (h *AdminHandler) createGateToken(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "name is required")
 		return
 	}
-	t, err := h.store.CreateGateToken(req.Name)
+	t, err := h.store.CreateGateToken(r.Context(), req.Name)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to create gate token")
 		return
 	}
+	h.logger.Info("gate token created", "id", t.ID, "name", req.Name)
 	writeJSON(w, http.StatusCreated, t)
 }
 
@@ -248,7 +256,7 @@ func (h *AdminHandler) updateGateToken(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "name is required")
 		return
 	}
-	err := h.store.UpdateGateToken(id, req.Name)
+	err := h.store.UpdateGateToken(r.Context(), id, req.Name)
 	if err == sql.ErrNoRows {
 		writeError(w, http.StatusNotFound, "gate token not found")
 		return
@@ -257,12 +265,13 @@ func (h *AdminHandler) updateGateToken(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to update gate token")
 		return
 	}
+	h.logger.Info("gate token updated", "id", id, "name", req.Name)
 	writeJSON(w, http.StatusOK, map[string]string{"id": id, "name": req.Name})
 }
 
 func (h *AdminHandler) deleteGateToken(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	err := h.store.DeleteGateToken(id)
+	err := h.store.DeleteGateToken(r.Context(), id)
 	if err == sql.ErrNoRows {
 		writeError(w, http.StatusNotFound, "gate token not found")
 		return
@@ -271,12 +280,13 @@ func (h *AdminHandler) deleteGateToken(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to delete gate token")
 		return
 	}
+	h.logger.Info("gate token deleted", "id", id)
 	writeJSON(w, http.StatusOK, map[string]string{"id": id})
 }
 
 func (h *AdminHandler) activateGateToken(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	err := h.store.SetGateTokenActive(id, true)
+	err := h.store.SetGateTokenActive(r.Context(), id, true)
 	if err == sql.ErrNoRows {
 		writeError(w, http.StatusNotFound, "gate token not found")
 		return
@@ -285,12 +295,13 @@ func (h *AdminHandler) activateGateToken(w http.ResponseWriter, r *http.Request)
 		writeError(w, http.StatusInternalServerError, "failed to activate gate token")
 		return
 	}
+	h.logger.Info("gate token activated", "id", id)
 	writeJSON(w, http.StatusOK, map[string]string{"id": id, "status": "active"})
 }
 
 func (h *AdminHandler) deactivateGateToken(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	err := h.store.SetGateTokenActive(id, false)
+	err := h.store.SetGateTokenActive(r.Context(), id, false)
 	if err == sql.ErrNoRows {
 		writeError(w, http.StatusNotFound, "gate token not found")
 		return
@@ -299,6 +310,7 @@ func (h *AdminHandler) deactivateGateToken(w http.ResponseWriter, r *http.Reques
 		writeError(w, http.StatusInternalServerError, "failed to deactivate gate token")
 		return
 	}
+	h.logger.Info("gate token deactivated", "id", id)
 	writeJSON(w, http.StatusOK, map[string]string{"id": id, "status": "inactive"})
 }
 
@@ -318,7 +330,7 @@ func parseSince(r *http.Request) time.Time {
 
 func (h *AdminHandler) getUsage(w http.ResponseWriter, r *http.Request) {
 	since := parseSince(r)
-	stats, err := h.store.GetUsageStats(since)
+	stats, err := h.store.GetUsageStats(r.Context(), since)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to get usage stats")
 		return
@@ -329,7 +341,7 @@ func (h *AdminHandler) getUsage(w http.ResponseWriter, r *http.Request) {
 func (h *AdminHandler) getUsageByRealToken(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	since := parseSince(r)
-	stats, err := h.store.GetUsageStatsByRealToken(id, since)
+	stats, err := h.store.GetUsageStatsByRealToken(r.Context(), id, since)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to get usage stats")
 		return
@@ -340,7 +352,7 @@ func (h *AdminHandler) getUsageByRealToken(w http.ResponseWriter, r *http.Reques
 func (h *AdminHandler) getUsageByGateToken(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	since := parseSince(r)
-	stats, err := h.store.GetUsageStatsByGateToken(id, since)
+	stats, err := h.store.GetUsageStatsByGateToken(r.Context(), id, since)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to get usage stats")
 		return

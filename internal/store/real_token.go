@@ -1,12 +1,15 @@
 package store
 
 import (
+	"context"
 	"crypto/rand"
 	"database/sql"
 	"encoding/hex"
 	"fmt"
 	"time"
 )
+
+const realTokenColumns = "id, name, access_token, refresh_token, is_active, failure_count, last_failure_at, last_used_at, total_input_tokens, total_output_tokens, created_at, updated_at"
 
 type RealToken struct {
 	ID                string     `json:"id"`
@@ -29,11 +32,11 @@ func newID() string {
 	return hex.EncodeToString(b)
 }
 
-func (s *Store) CreateRealToken(name, accessToken, refreshToken string) (*RealToken, error) {
+func (s *Store) CreateRealToken(ctx context.Context, name, accessToken, refreshToken string) (*RealToken, error) {
 	id := newID()
 	now := time.Now().UTC()
 
-	_, err := s.writeDB.Exec(
+	_, err := s.writeDB.ExecContext(ctx,
 		`INSERT INTO real_tokens (id, name, access_token, refresh_token, created_at, updated_at)
 		 VALUES (?, ?, ?, ?, ?, ?)`,
 		id, name, accessToken, refreshToken, now, now,
@@ -53,21 +56,17 @@ func (s *Store) CreateRealToken(name, accessToken, refreshToken string) (*RealTo
 	}, nil
 }
 
-func (s *Store) GetRealToken(id string) (*RealToken, error) {
-	row := s.readDB.QueryRow(
-		`SELECT id, name, access_token, refresh_token, is_active, failure_count,
-		        last_failure_at, last_used_at, total_input_tokens, total_output_tokens,
-		        created_at, updated_at
+func (s *Store) GetRealToken(ctx context.Context, id string) (*RealToken, error) {
+	row := s.readDB.QueryRowContext(ctx,
+		`SELECT `+realTokenColumns+`
 		 FROM real_tokens WHERE id = ?`, id,
 	)
 	return scanRealToken(row)
 }
 
-func (s *Store) ListRealTokens() ([]RealToken, error) {
-	rows, err := s.readDB.Query(
-		`SELECT id, name, access_token, refresh_token, is_active, failure_count,
-		        last_failure_at, last_used_at, total_input_tokens, total_output_tokens,
-		        created_at, updated_at
+func (s *Store) ListRealTokens(ctx context.Context) ([]RealToken, error) {
+	rows, err := s.readDB.QueryContext(ctx,
+		`SELECT `+realTokenColumns+`
 		 FROM real_tokens ORDER BY created_at DESC`,
 	)
 	if err != nil {
@@ -86,11 +85,9 @@ func (s *Store) ListRealTokens() ([]RealToken, error) {
 	return tokens, rows.Err()
 }
 
-func (s *Store) ListActiveRealTokens(maxFailures int) ([]RealToken, error) {
-	rows, err := s.readDB.Query(
-		`SELECT id, name, access_token, refresh_token, is_active, failure_count,
-		        last_failure_at, last_used_at, total_input_tokens, total_output_tokens,
-		        created_at, updated_at
+func (s *Store) ListActiveRealTokens(ctx context.Context, maxFailures int) ([]RealToken, error) {
+	rows, err := s.readDB.QueryContext(ctx,
+		`SELECT `+realTokenColumns+`
 		 FROM real_tokens WHERE is_active = 1 AND failure_count < ? ORDER BY created_at`,
 		maxFailures,
 	)
@@ -110,8 +107,8 @@ func (s *Store) ListActiveRealTokens(maxFailures int) ([]RealToken, error) {
 	return tokens, rows.Err()
 }
 
-func (s *Store) UpdateRealToken(id, name string) error {
-	res, err := s.writeDB.Exec(
+func (s *Store) UpdateRealToken(ctx context.Context, id, name string) error {
+	res, err := s.writeDB.ExecContext(ctx,
 		`UPDATE real_tokens SET name = ?, updated_at = datetime('now') WHERE id = ?`,
 		name, id,
 	)
@@ -125,12 +122,12 @@ func (s *Store) UpdateRealToken(id, name string) error {
 	return nil
 }
 
-func (s *Store) SetRealTokenActive(id string, active bool) error {
+func (s *Store) SetRealTokenActive(ctx context.Context, id string, active bool) error {
 	val := 0
 	if active {
 		val = 1
 	}
-	res, err := s.writeDB.Exec(
+	res, err := s.writeDB.ExecContext(ctx,
 		`UPDATE real_tokens SET is_active = ?, failure_count = CASE WHEN ? = 1 THEN 0 ELSE failure_count END, updated_at = datetime('now') WHERE id = ?`,
 		val, val, id,
 	)
@@ -144,39 +141,60 @@ func (s *Store) SetRealTokenActive(id string, active bool) error {
 	return nil
 }
 
-func (s *Store) DeleteRealToken(id string) error {
-	res, err := s.writeDB.Exec(`DELETE FROM real_tokens WHERE id = ?`, id)
+func (s *Store) DeleteRealToken(ctx context.Context, id string) error {
+	tx, err := s.writeDB.BeginTx(ctx, nil)
 	if err != nil {
+		return fmt.Errorf("delete real token: begin tx: %w", err)
+	}
+
+	if _, err := tx.ExecContext(ctx, `DELETE FROM sticky_sessions WHERE real_token_id = ?`, id); err != nil {
+		_ = tx.Rollback()
+		return fmt.Errorf("delete real token: delete sticky sessions: %w", err)
+	}
+
+	if _, err := tx.ExecContext(ctx, `DELETE FROM usage_logs WHERE real_token_id = ?`, id); err != nil {
+		_ = tx.Rollback()
+		return fmt.Errorf("delete real token: delete usage logs: %w", err)
+	}
+
+	res, err := tx.ExecContext(ctx, `DELETE FROM real_tokens WHERE id = ?`, id)
+	if err != nil {
+		_ = tx.Rollback()
 		return fmt.Errorf("delete real token: %w", err)
 	}
-	n, _ := res.RowsAffected()
+
+	n, err := res.RowsAffected()
+	if err != nil {
+		_ = tx.Rollback()
+		return fmt.Errorf("delete real token: rows affected: %w", err)
+	}
 	if n == 0 {
+		_ = tx.Rollback()
 		return sql.ErrNoRows
 	}
-	return nil
+
+	return tx.Commit()
 }
 
-func (s *Store) IncrementRealTokenFailure(id string) error {
-	_, err := s.writeDB.Exec(
+func (s *Store) IncrementRealTokenFailure(ctx context.Context, id string) error {
+	_, err := s.writeDB.ExecContext(ctx,
 		`UPDATE real_tokens SET failure_count = failure_count + 1, last_failure_at = datetime('now'), updated_at = datetime('now') WHERE id = ?`,
 		id,
 	)
 	return err
 }
 
-func (s *Store) UpdateRealTokenUsage(id string, inputTokens, outputTokens int64) error {
-	_, err := s.writeDB.Exec(
+func (s *Store) UpdateRealTokenUsage(ctx context.Context, id string, inputTokens, outputTokens int64) error {
+	_, err := s.writeDB.ExecContext(ctx,
 		`UPDATE real_tokens SET total_input_tokens = total_input_tokens + ?, total_output_tokens = total_output_tokens + ?, last_used_at = datetime('now'), updated_at = datetime('now') WHERE id = ?`,
 		inputTokens, outputTokens, id,
 	)
 	return err
 }
 
-func (s *Store) GetRealTokenByAccessToken(accessToken string) (*RealToken, error) {
-	row := s.readDB.QueryRow(
-		`SELECT id, name, access_token, refresh_token, is_active, failure_count,
-		        last_failure_at, last_used_at, total_input_tokens, total_output_tokens,
-		        created_at, updated_at
+func (s *Store) GetRealTokenByAccessToken(ctx context.Context, accessToken string) (*RealToken, error) {
+	row := s.readDB.QueryRowContext(ctx,
+		`SELECT `+realTokenColumns+`
 		 FROM real_tokens WHERE access_token = ?`, accessToken,
 	)
 	return scanRealToken(row)

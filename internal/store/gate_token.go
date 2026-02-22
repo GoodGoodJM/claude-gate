@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"crypto/rand"
 	"database/sql"
 	"encoding/base32"
@@ -8,6 +9,8 @@ import (
 	"strings"
 	"time"
 )
+
+const gateTokenColumns = "id, token, name, is_active, total_input_tokens, total_output_tokens, created_at, updated_at"
 
 type GateToken struct {
 	ID                string    `json:"id"`
@@ -27,12 +30,12 @@ func generateGateToken() string {
 	return "gate-" + strings.ToLower(encoded)
 }
 
-func (s *Store) CreateGateToken(name string) (*GateToken, error) {
+func (s *Store) CreateGateToken(ctx context.Context, name string) (*GateToken, error) {
 	id := newID()
 	token := generateGateToken()
 	now := time.Now().UTC()
 
-	_, err := s.writeDB.Exec(
+	_, err := s.writeDB.ExecContext(ctx,
 		`INSERT INTO gate_tokens (id, token, name, created_at, updated_at)
 		 VALUES (?, ?, ?, ?, ?)`,
 		id, token, name, now, now,
@@ -51,25 +54,25 @@ func (s *Store) CreateGateToken(name string) (*GateToken, error) {
 	}, nil
 }
 
-func (s *Store) GetGateToken(id string) (*GateToken, error) {
-	row := s.readDB.QueryRow(
-		`SELECT id, token, name, is_active, total_input_tokens, total_output_tokens, created_at, updated_at
+func (s *Store) GetGateToken(ctx context.Context, id string) (*GateToken, error) {
+	row := s.readDB.QueryRowContext(ctx,
+		`SELECT `+gateTokenColumns+`
 		 FROM gate_tokens WHERE id = ?`, id,
 	)
 	return scanGateToken(row)
 }
 
-func (s *Store) GetGateTokenByToken(token string) (*GateToken, error) {
-	row := s.readDB.QueryRow(
-		`SELECT id, token, name, is_active, total_input_tokens, total_output_tokens, created_at, updated_at
+func (s *Store) GetGateTokenByToken(ctx context.Context, token string) (*GateToken, error) {
+	row := s.readDB.QueryRowContext(ctx,
+		`SELECT `+gateTokenColumns+`
 		 FROM gate_tokens WHERE token = ?`, token,
 	)
 	return scanGateToken(row)
 }
 
-func (s *Store) ListGateTokens() ([]GateToken, error) {
-	rows, err := s.readDB.Query(
-		`SELECT id, token, name, is_active, total_input_tokens, total_output_tokens, created_at, updated_at
+func (s *Store) ListGateTokens(ctx context.Context) ([]GateToken, error) {
+	rows, err := s.readDB.QueryContext(ctx,
+		`SELECT `+gateTokenColumns+`
 		 FROM gate_tokens ORDER BY created_at DESC`,
 	)
 	if err != nil {
@@ -88,8 +91,8 @@ func (s *Store) ListGateTokens() ([]GateToken, error) {
 	return tokens, rows.Err()
 }
 
-func (s *Store) UpdateGateToken(id, name string) error {
-	res, err := s.writeDB.Exec(
+func (s *Store) UpdateGateToken(ctx context.Context, id, name string) error {
+	res, err := s.writeDB.ExecContext(ctx,
 		`UPDATE gate_tokens SET name = ?, updated_at = datetime('now') WHERE id = ?`,
 		name, id,
 	)
@@ -103,12 +106,12 @@ func (s *Store) UpdateGateToken(id, name string) error {
 	return nil
 }
 
-func (s *Store) SetGateTokenActive(id string, active bool) error {
+func (s *Store) SetGateTokenActive(ctx context.Context, id string, active bool) error {
 	val := 0
 	if active {
 		val = 1
 	}
-	res, err := s.writeDB.Exec(
+	res, err := s.writeDB.ExecContext(ctx,
 		`UPDATE gate_tokens SET is_active = ?, updated_at = datetime('now') WHERE id = ?`,
 		val, id,
 	)
@@ -122,20 +125,43 @@ func (s *Store) SetGateTokenActive(id string, active bool) error {
 	return nil
 }
 
-func (s *Store) DeleteGateToken(id string) error {
-	res, err := s.writeDB.Exec(`DELETE FROM gate_tokens WHERE id = ?`, id)
+func (s *Store) DeleteGateToken(ctx context.Context, id string) error {
+	tx, err := s.writeDB.BeginTx(ctx, nil)
 	if err != nil {
+		return fmt.Errorf("delete gate token: begin tx: %w", err)
+	}
+
+	if _, err := tx.ExecContext(ctx, `DELETE FROM sticky_sessions WHERE gate_token_id = ?`, id); err != nil {
+		_ = tx.Rollback()
+		return fmt.Errorf("delete gate token: delete sticky sessions: %w", err)
+	}
+
+	if _, err := tx.ExecContext(ctx, `DELETE FROM usage_logs WHERE gate_token_id = ?`, id); err != nil {
+		_ = tx.Rollback()
+		return fmt.Errorf("delete gate token: delete usage logs: %w", err)
+	}
+
+	res, err := tx.ExecContext(ctx, `DELETE FROM gate_tokens WHERE id = ?`, id)
+	if err != nil {
+		_ = tx.Rollback()
 		return fmt.Errorf("delete gate token: %w", err)
 	}
-	n, _ := res.RowsAffected()
+
+	n, err := res.RowsAffected()
+	if err != nil {
+		_ = tx.Rollback()
+		return fmt.Errorf("delete gate token: rows affected: %w", err)
+	}
 	if n == 0 {
+		_ = tx.Rollback()
 		return sql.ErrNoRows
 	}
-	return nil
+
+	return tx.Commit()
 }
 
-func (s *Store) UpdateGateTokenUsage(id string, inputTokens, outputTokens int64) error {
-	_, err := s.writeDB.Exec(
+func (s *Store) UpdateGateTokenUsage(ctx context.Context, id string, inputTokens, outputTokens int64) error {
+	_, err := s.writeDB.ExecContext(ctx,
 		`UPDATE gate_tokens SET total_input_tokens = total_input_tokens + ?, total_output_tokens = total_output_tokens + ?, updated_at = datetime('now') WHERE id = ?`,
 		inputTokens, outputTokens, id,
 	)

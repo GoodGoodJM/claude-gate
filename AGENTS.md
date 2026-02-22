@@ -59,9 +59,12 @@ SQLite WAL 모드, read/write 커넥션 분리. `writeDB`는 `MaxOpenConns=1`, `
 코드를 수정한 후 커밋하기 전에 **반드시** 아래를 로컬에서 실행하여 통과를 확인해야 한다:
 
 ```bash
+go fix ./...        # Go 1.26+ 코드 현대화 (range-over-int, strings.Builder 등)
 make lint           # golangci-lint (errcheck 등 포함)
 make test           # go test -race ./...
 ```
+
+`go fix`는 구식 패턴을 현대 Go 관용구로 자동 변환한다. 코드 수정 후 lint/test 전에 먼저 실행할 것.
 
 lint에서 자주 걸리는 항목:
 - **errcheck**: 에러 반환값을 무시하면 안 됨. 의도적으로 무시할 경우 `_ =` 사용

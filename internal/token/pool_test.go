@@ -1,20 +1,23 @@
 package token
 
 import (
+	"context"
 	"testing"
 
+	"github.com/ggmolly/claude-gate/internal/logging"
 	"github.com/ggmolly/claude-gate/testutil"
 )
 
 func TestTokenPool_RoundRobin(t *testing.T) {
 	s := testutil.NewTestStore(t)
+	ctx := context.Background()
 
-	_, _ = s.CreateRealToken("tok1", "acc1", "ref1")
-	_, _ = s.CreateRealToken("tok2", "acc2", "ref2")
-	_, _ = s.CreateRealToken("tok3", "acc3", "ref3")
+	_, _ = s.CreateRealToken(ctx, "tok1", "acc1", "ref1")
+	_, _ = s.CreateRealToken(ctx, "tok2", "acc2", "ref2")
+	_, _ = s.CreateRealToken(ctx, "tok3", "acc3", "ref3")
 
-	pool := NewTokenPool(s, 5)
-	if err := pool.Refresh(); err != nil {
+	pool := NewTokenPool(s, 5, logging.Discard())
+	if err := pool.Refresh(ctx); err != nil {
 		t.Fatalf("refresh: %v", err)
 	}
 
@@ -24,7 +27,7 @@ func TestTokenPool_RoundRobin(t *testing.T) {
 
 	// Collect 6 selections; should cycle through all 3 tokens twice.
 	seen := make(map[string]int)
-	for i := 0; i < 6; i++ {
+	for i := range 6 {
 		tok, err := pool.Select(nil)
 		if err != nil {
 			t.Fatalf("select %d: %v", i, err)
@@ -41,18 +44,19 @@ func TestTokenPool_RoundRobin(t *testing.T) {
 
 func TestTokenPool_ExcludeIDs(t *testing.T) {
 	s := testutil.NewTestStore(t)
+	ctx := context.Background()
 
-	t1, _ := s.CreateRealToken("tok1", "acc1", "ref1")
-	t2, _ := s.CreateRealToken("tok2", "acc2", "ref2")
+	t1, _ := s.CreateRealToken(ctx, "tok1", "acc1", "ref1")
+	t2, _ := s.CreateRealToken(ctx, "tok2", "acc2", "ref2")
 
-	pool := NewTokenPool(s, 5)
-	if err := pool.Refresh(); err != nil {
+	pool := NewTokenPool(s, 5, logging.Discard())
+	if err := pool.Refresh(ctx); err != nil {
 		t.Fatalf("refresh: %v", err)
 	}
 
 	// Exclude t1; should always get t2.
 	exclude := map[string]bool{t1.ID: true}
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		tok, err := pool.Select(exclude)
 		if err != nil {
 			t.Fatalf("select: %v", err)
@@ -65,11 +69,12 @@ func TestTokenPool_ExcludeIDs(t *testing.T) {
 
 func TestTokenPool_AllExcluded(t *testing.T) {
 	s := testutil.NewTestStore(t)
+	ctx := context.Background()
 
-	t1, _ := s.CreateRealToken("tok1", "acc1", "ref1")
+	t1, _ := s.CreateRealToken(ctx, "tok1", "acc1", "ref1")
 
-	pool := NewTokenPool(s, 5)
-	if err := pool.Refresh(); err != nil {
+	pool := NewTokenPool(s, 5, logging.Discard())
+	if err := pool.Refresh(ctx); err != nil {
 		t.Fatalf("refresh: %v", err)
 	}
 
@@ -82,9 +87,10 @@ func TestTokenPool_AllExcluded(t *testing.T) {
 
 func TestTokenPool_EmptyPool(t *testing.T) {
 	s := testutil.NewTestStore(t)
+	ctx := context.Background()
 
-	pool := NewTokenPool(s, 5)
-	if err := pool.Refresh(); err != nil {
+	pool := NewTokenPool(s, 5, logging.Discard())
+	if err := pool.Refresh(ctx); err != nil {
 		t.Fatalf("refresh: %v", err)
 	}
 
@@ -96,13 +102,14 @@ func TestTokenPool_EmptyPool(t *testing.T) {
 
 func TestTokenPool_FiltersInactiveTokens(t *testing.T) {
 	s := testutil.NewTestStore(t)
+	ctx := context.Background()
 
-	t1, _ := s.CreateRealToken("active", "acc1", "ref1")
-	t2, _ := s.CreateRealToken("inactive", "acc2", "ref2")
-	_ = s.SetRealTokenActive(t2.ID, false)
+	t1, _ := s.CreateRealToken(ctx, "active", "acc1", "ref1")
+	t2, _ := s.CreateRealToken(ctx, "inactive", "acc2", "ref2")
+	_ = s.SetRealTokenActive(ctx, t2.ID, false)
 
-	pool := NewTokenPool(s, 5)
-	if err := pool.Refresh(); err != nil {
+	pool := NewTokenPool(s, 5, logging.Discard())
+	if err := pool.Refresh(ctx); err != nil {
 		t.Fatalf("refresh: %v", err)
 	}
 
@@ -121,17 +128,18 @@ func TestTokenPool_FiltersInactiveTokens(t *testing.T) {
 
 func TestTokenPool_FiltersHighFailureTokens(t *testing.T) {
 	s := testutil.NewTestStore(t)
+	ctx := context.Background()
 
-	t1, _ := s.CreateRealToken("healthy", "acc1", "ref1")
-	t2, _ := s.CreateRealToken("failing", "acc2", "ref2")
+	t1, _ := s.CreateRealToken(ctx, "healthy", "acc1", "ref1")
+	t2, _ := s.CreateRealToken(ctx, "failing", "acc2", "ref2")
 
 	// Push t2 to 3 failures with maxFailures=3.
-	for i := 0; i < 3; i++ {
-		_ = s.IncrementRealTokenFailure(t2.ID)
+	for range 3 {
+		_ = s.IncrementRealTokenFailure(ctx, t2.ID)
 	}
 
-	pool := NewTokenPool(s, 3)
-	if err := pool.Refresh(); err != nil {
+	pool := NewTokenPool(s, 3, logging.Discard())
+	if err := pool.Refresh(ctx); err != nil {
 		t.Fatalf("refresh: %v", err)
 	}
 
@@ -150,11 +158,12 @@ func TestTokenPool_FiltersHighFailureTokens(t *testing.T) {
 
 func TestTokenPool_GetByID(t *testing.T) {
 	s := testutil.NewTestStore(t)
+	ctx := context.Background()
 
-	created, _ := s.CreateRealToken("tok1", "acc1", "ref1")
+	created, _ := s.CreateRealToken(ctx, "tok1", "acc1", "ref1")
 
-	pool := NewTokenPool(s, 5)
-	_ = pool.Refresh()
+	pool := NewTokenPool(s, 5, logging.Discard())
+	_ = pool.Refresh(ctx)
 
 	got := pool.GetByID(created.ID)
 	if got == nil {

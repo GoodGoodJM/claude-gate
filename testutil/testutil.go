@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/ggmolly/claude-gate/internal/store"
@@ -38,14 +39,14 @@ type SSEEvent struct {
 
 // BuildSSEResponse creates a valid SSE response body from events.
 func BuildSSEResponse(events []SSEEvent) string {
-	var result string
+	var result strings.Builder
 	for _, e := range events {
 		if e.Event != "" {
-			result += "event: " + e.Event + "\n"
+			result.WriteString("event: " + e.Event + "\n")
 		}
-		result += "data: " + e.Data + "\n\n"
+		result.WriteString("data: " + e.Data + "\n\n")
 	}
-	return result
+	return result.String()
 }
 
 // StandardSSEEvents returns a typical Claude API SSE event sequence.
