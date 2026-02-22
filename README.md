@@ -16,6 +16,16 @@ Claude Code ──► Claude Gate ──► Claude API
 - **Auto-Deactivation** — Real tokens auto-disabled after repeated upstream failures
 - **Admin API + Web UI** — Manage tokens and view usage via REST API or browser
 
+## Screenshots
+
+| Dashboard | Real Tokens |
+|:-:|:-:|
+| ![Dashboard](docs/dashboard.png) | ![Real Tokens](docs/real-tokens.png) |
+
+| Gate Tokens | Login |
+|:-:|:-:|
+| ![Gate Tokens](docs/gate-tokens.png) | ![Login](docs/login.png) |
+
 ## Quick Start
 
 ### 1. Build
