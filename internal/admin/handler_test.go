@@ -31,7 +31,7 @@ func setupTestHandler(t *testing.T) (*AdminHandler, *http.ServeMux, *store.Store
 	s := newTestStore(t)
 	h := NewAdminHandler(s, nil, logging.Discard())
 	mux := http.NewServeMux()
-	h.Register(mux, testAdminSecret)
+	h.Register(mux, testAdminSecret, nil)
 	return h, mux, s
 }
 
@@ -64,7 +64,7 @@ func parseResponse(t *testing.T, rr *httptest.ResponseRecorder) map[string]json.
 // --- Middleware tests ---
 
 func TestAdminAuth_ValidToken(t *testing.T) {
-	handler := AdminAuth(testAdminSecret)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := AdminAuth(testAdminSecret, nil)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
@@ -79,7 +79,7 @@ func TestAdminAuth_ValidToken(t *testing.T) {
 }
 
 func TestAdminAuth_MissingToken(t *testing.T) {
-	handler := AdminAuth(testAdminSecret)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := AdminAuth(testAdminSecret, nil)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
@@ -93,7 +93,7 @@ func TestAdminAuth_MissingToken(t *testing.T) {
 }
 
 func TestAdminAuth_InvalidToken(t *testing.T) {
-	handler := AdminAuth(testAdminSecret)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := AdminAuth(testAdminSecret, nil)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 

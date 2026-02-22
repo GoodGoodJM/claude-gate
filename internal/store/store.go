@@ -3,6 +3,7 @@ package store
 import (
 	"database/sql"
 	"embed"
+	"errors"
 	"fmt"
 	"io/fs"
 	"sort"
@@ -52,17 +53,7 @@ func New(dbPath string) (*Store, error) {
 
 // Close closes both database connections.
 func (s *Store) Close() error {
-	var errs []error
-	if err := s.writeDB.Close(); err != nil {
-		errs = append(errs, err)
-	}
-	if err := s.readDB.Close(); err != nil {
-		errs = append(errs, err)
-	}
-	if len(errs) > 0 {
-		return fmt.Errorf("close store: %v", errs)
-	}
-	return nil
+	return errors.Join(s.writeDB.Close(), s.readDB.Close())
 }
 
 // WriteDB returns the write-only database connection.

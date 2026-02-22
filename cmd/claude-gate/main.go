@@ -53,31 +53,25 @@ func main() {
 
 	mux := http.NewServeMux()
 
-	// Admin API (each route has auth middleware applied)
-	adminHandler := admin.NewAdminHandler(db, func() {
-		if err := tokenMgr.RefreshPool(); err != nil {
-			logger.Error("failed to refresh token pool", "error", err)
-		}
-	}, logger)
-	adminHandler.Register(mux, cfg.AdminSecret)
-
-	// Web UI
-	webHandler, err := web.NewHandler(db, cfg.AdminSecret, func() {
-		if err := tokenMgr.RefreshPool(); err != nil {
-			logger.Error("failed to refresh token pool", "error", err)
-		}
-	}, logger)
+	// Web UI (create first so session validator is available for admin API)
+	webHandler, err := web.NewHandler(db, cfg.AdminSecret, logger)
 	if err != nil {
 		log.Fatalf("init web handler: %v", err)
 	}
 	webHandler.RegisterRoutes(mux)
+
+	// Admin API (each route has auth middleware applied, session auth for Web UI)
+	adminHandler := admin.NewAdminHandler(db, func() {
+		tokenMgr.RefreshPool()
+	}, logger)
+	adminHandler.Register(mux, cfg.AdminSecret, webHandler.ValidateSession)
 
 	// Proxy catch-all (must be last)
 	mux.Handle("/", proxyHandler)
 
 	srv := &http.Server{
 		Addr:         cfg.Addr,
-		Handler:      mux,
+		Handler:      web.WrapMux(mux),
 		ReadTimeout:  30 * time.Second,
 		WriteTimeout: 0, // no timeout for SSE streaming
 		IdleTimeout:  120 * time.Second,

@@ -3,6 +3,7 @@ package token
 import (
 	"context"
 	"log/slog"
+	"sync"
 	"time"
 
 	"github.com/ggmolly/claude-gate/internal/store"
@@ -19,7 +20,9 @@ type Manager struct {
 	stickyTTL   time.Duration
 	maxFailures int
 
-	ctx context.Context
+	ctx          context.Context
+	refreshMu    sync.Mutex
+	refreshTimer *time.Timer
 }
 
 // NewManager creates a Manager. Call Start to begin background goroutines.
@@ -49,10 +52,21 @@ func (m *Manager) Stop() {
 	m.sticky.Stop()
 }
 
-// RefreshPool reloads the token pool from the database. Call this after
-// creating, updating, or deleting real tokens.
-func (m *Manager) RefreshPool() error {
-	return m.pool.Refresh(m.ctx)
+// RefreshPool schedules a debounced pool refresh. Multiple calls within 100ms
+// are coalesced into a single refresh.
+func (m *Manager) RefreshPool() {
+	m.refreshMu.Lock()
+	defer m.refreshMu.Unlock()
+	if m.refreshTimer != nil {
+		m.refreshTimer.Stop()
+	}
+	m.refreshTimer = time.AfterFunc(100*time.Millisecond, func() {
+		if err := m.pool.Refresh(m.ctx); err != nil {
+			m.logger.Error("failed to refresh token pool", "error", err)
+		} else {
+			m.logger.Debug("pool refreshed")
+		}
+	})
 }
 
 // ResolveToken returns the real token to use for the given gate token ID.
@@ -101,10 +115,6 @@ func (m *Manager) RecordFailure(ctx context.Context, realTokenID string) error {
 		}
 	}
 
-	return m.pool.Refresh(ctx)
-}
-
-// Pool returns the underlying TokenPool (useful for inspection in handlers).
-func (m *Manager) Pool() *TokenPool {
-	return m.pool
+	m.RefreshPool()
+	return nil
 }

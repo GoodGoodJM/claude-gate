@@ -18,16 +18,16 @@ const sessionCookieName = "claude_gate_session"
 
 // Handler serves the admin web UI.
 type Handler struct {
-	store         *store.Store
-	adminSecret   string
-	logger        *slog.Logger
-	templates     *template.Template
-	sessions      *ttlcache.Cache[string, bool]
-	onPoolChanged func()
+	store       *store.Store
+	adminSecret string
+	logger      *slog.Logger
+	templates   *template.Template
+	layoutCache map[string]*template.Template
+	sessions    *ttlcache.Cache[string, bool]
 }
 
 // NewHandler creates a new web UI handler.
-func NewHandler(s *store.Store, adminSecret string, onPoolChanged func(), logger *slog.Logger) (*Handler, error) {
+func NewHandler(s *store.Store, adminSecret string, logger *slog.Logger) (*Handler, error) {
 	tmpl, err := template.ParseFS(templatesFS, "templates/*.html")
 	if err != nil {
 		return nil, err
@@ -37,14 +37,34 @@ func NewHandler(s *store.Store, adminSecret string, onPoolChanged func(), logger
 	)
 	go sessions.Start()
 
+	// Pre-parse layout + page template combinations.
+	pages := []string{"dashboard.html", "real_tokens.html", "gate_tokens.html"}
+	layoutCache := make(map[string]*template.Template, len(pages))
+	for _, page := range pages {
+		t, err := template.ParseFS(templatesFS, "templates/layout.html", "templates/"+page)
+		if err != nil {
+			return nil, err
+		}
+		layoutCache[page] = t
+	}
+
 	return &Handler{
-		store:         s,
-		adminSecret:   adminSecret,
-		logger:        logger,
-		templates:     tmpl,
-		sessions:      sessions,
-		onPoolChanged: onPoolChanged,
+		store:       s,
+		adminSecret: adminSecret,
+		logger:      logger,
+		templates:   tmpl,
+		layoutCache: layoutCache,
+		sessions:    sessions,
 	}, nil
+}
+
+// ValidateSession checks if a request has a valid session cookie.
+func (h *Handler) ValidateSession(r *http.Request) bool {
+	cookie, err := r.Cookie(sessionCookieName)
+	if err != nil {
+		return false
+	}
+	return h.sessions.Get(cookie.Value) != nil
 }
 
 // RegisterRoutes registers all web UI routes on the given mux.
@@ -58,16 +78,22 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 
 	mux.HandleFunc("GET /admin/", h.requireAuth(h.dashboard))
 	mux.HandleFunc("GET /admin/real-tokens", h.requireAuth(h.realTokensPage))
-	mux.HandleFunc("POST /admin/real-tokens/create", h.requireAuth(h.realTokenCreate))
-	mux.HandleFunc("POST /admin/real-tokens/{id}/activate", h.requireAuth(h.realTokenActivate))
-	mux.HandleFunc("POST /admin/real-tokens/{id}/deactivate", h.requireAuth(h.realTokenDeactivate))
-	mux.HandleFunc("POST /admin/real-tokens/{id}/delete", h.requireAuth(h.realTokenDelete))
-
 	mux.HandleFunc("GET /admin/gate-tokens", h.requireAuth(h.gateTokensPage))
-	mux.HandleFunc("POST /admin/gate-tokens/create", h.requireAuth(h.gateTokenCreate))
-	mux.HandleFunc("POST /admin/gate-tokens/{id}/activate", h.requireAuth(h.gateTokenActivate))
-	mux.HandleFunc("POST /admin/gate-tokens/{id}/deactivate", h.requireAuth(h.gateTokenDeactivate))
-	mux.HandleFunc("POST /admin/gate-tokens/{id}/delete", h.requireAuth(h.gateTokenDelete))
+}
+
+// securityHeaders wraps a handler with common security headers.
+func securityHeaders(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Frame-Options", "DENY")
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'")
+		next.ServeHTTP(w, r)
+	})
+}
+
+// WrapMux wraps the entire mux with security headers.
+func WrapMux(mux http.Handler) http.Handler {
+	return securityHeaders(mux)
 }
 
 func (h *Handler) requireAuth(next http.HandlerFunc) http.HandlerFunc {
@@ -185,50 +211,6 @@ func (h *Handler) realTokensPage(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func (h *Handler) realTokenCreate(w http.ResponseWriter, r *http.Request) {
-	name := r.FormValue("name")
-	accessToken := r.FormValue("access_token")
-	refreshToken := r.FormValue("refresh_token")
-
-	_, err := h.store.CreateRealToken(r.Context(), name, accessToken, refreshToken)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	h.notifyPoolChanged()
-	http.Redirect(w, r, "/admin/real-tokens?flash=Token+created", http.StatusSeeOther)
-}
-
-func (h *Handler) realTokenActivate(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
-	if err := h.store.SetRealTokenActive(r.Context(), id, true); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	h.notifyPoolChanged()
-	http.Redirect(w, r, "/admin/real-tokens?flash=Token+activated", http.StatusSeeOther)
-}
-
-func (h *Handler) realTokenDeactivate(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
-	if err := h.store.SetRealTokenActive(r.Context(), id, false); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	h.notifyPoolChanged()
-	http.Redirect(w, r, "/admin/real-tokens?flash=Token+deactivated", http.StatusSeeOther)
-}
-
-func (h *Handler) realTokenDelete(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
-	if err := h.store.DeleteRealToken(r.Context(), id); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	h.notifyPoolChanged()
-	http.Redirect(w, r, "/admin/real-tokens?flash=Token+deleted", http.StatusSeeOther)
-}
-
 func (h *Handler) gateTokensPage(w http.ResponseWriter, r *http.Request) {
 	tokens, err := h.store.ListGateTokens(r.Context())
 	if err != nil {
@@ -245,43 +227,6 @@ func (h *Handler) gateTokensPage(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func (h *Handler) gateTokenCreate(w http.ResponseWriter, r *http.Request) {
-	name := r.FormValue("name")
-	gt, err := h.store.CreateGateToken(r.Context(), name)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	http.Redirect(w, r, "/admin/gate-tokens?flash=Token+created&new_token="+gt.Token, http.StatusSeeOther)
-}
-
-func (h *Handler) gateTokenActivate(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
-	if err := h.store.SetGateTokenActive(r.Context(), id, true); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	http.Redirect(w, r, "/admin/gate-tokens?flash=Token+activated", http.StatusSeeOther)
-}
-
-func (h *Handler) gateTokenDeactivate(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
-	if err := h.store.SetGateTokenActive(r.Context(), id, false); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	http.Redirect(w, r, "/admin/gate-tokens?flash=Token+deactivated", http.StatusSeeOther)
-}
-
-func (h *Handler) gateTokenDelete(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
-	if err := h.store.DeleteGateToken(r.Context(), id); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	http.Redirect(w, r, "/admin/gate-tokens?flash=Token+deleted", http.StatusSeeOther)
-}
-
 func (h *Handler) render(w http.ResponseWriter, name string, data any) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := h.templates.ExecuteTemplate(w, name, data); err != nil {
@@ -290,21 +235,14 @@ func (h *Handler) render(w http.ResponseWriter, name string, data any) {
 }
 
 func (h *Handler) renderLayout(w http.ResponseWriter, name string, data any) {
-	// Parse layout + specific template together
-	tmpl, err := template.ParseFS(templatesFS, "templates/layout.html", "templates/"+name)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+	tmpl, ok := h.layoutCache[name]
+	if !ok {
+		http.Error(w, "template not found", http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := tmpl.ExecuteTemplate(w, "layout", data); err != nil {
 		h.logger.Error("render layout failed", "template", name, "error", err)
-	}
-}
-
-func (h *Handler) notifyPoolChanged() {
-	if h.onPoolChanged != nil {
-		h.onPoolChanged()
 	}
 }
 

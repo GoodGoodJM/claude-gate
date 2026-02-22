@@ -115,7 +115,10 @@ func (s *Store) UpdateRealToken(ctx context.Context, id, name string) error {
 	if err != nil {
 		return fmt.Errorf("update real token: %w", err)
 	}
-	n, _ := res.RowsAffected()
+	n, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("update real token: rows affected: %w", err)
+	}
 	if n == 0 {
 		return sql.ErrNoRows
 	}
@@ -134,7 +137,10 @@ func (s *Store) SetRealTokenActive(ctx context.Context, id string, active bool) 
 	if err != nil {
 		return fmt.Errorf("set real token active: %w", err)
 	}
-	n, _ := res.RowsAffected()
+	n, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("set real token active: rows affected: %w", err)
+	}
 	if n == 0 {
 		return sql.ErrNoRows
 	}

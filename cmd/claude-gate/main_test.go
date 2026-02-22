@@ -42,14 +42,14 @@ func TestServerBoot(t *testing.T) {
 
 	mux := http.NewServeMux()
 
-	adminHandler := admin.NewAdminHandler(db, nil, logger)
-	adminHandler.Register(mux, "test-secret")
-
-	webHandler, err := web.NewHandler(db, "test-secret", nil, logger)
+	webHandler, err := web.NewHandler(db, "test-secret", logger)
 	if err != nil {
 		t.Fatalf("init web handler: %v", err)
 	}
 	webHandler.RegisterRoutes(mux)
+
+	adminHandler := admin.NewAdminHandler(db, nil, logger)
+	adminHandler.Register(mux, "test-secret", webHandler.ValidateSession)
 
 	mux.Handle("/", proxyHandler)
 

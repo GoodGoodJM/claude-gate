@@ -139,6 +139,8 @@ func TestManager_RecordFailure(t *testing.T) {
 		}
 	}
 
+	time.Sleep(200 * time.Millisecond) // wait for debounced refresh
+
 	// Token should still be in the pool.
 	if m.pool.Len() != 1 {
 		t.Fatalf("expected 1 token in pool, got %d", m.pool.Len())
@@ -148,6 +150,7 @@ func TestManager_RecordFailure(t *testing.T) {
 	if err := m.RecordFailure(ctx, tok.ID); err != nil {
 		t.Fatalf("record failure final: %v", err)
 	}
+	time.Sleep(200 * time.Millisecond) // wait for debounced refresh
 
 	if m.pool.Len() != 0 {
 		t.Fatalf("expected 0 tokens in pool after deactivation, got %d", m.pool.Len())
@@ -169,6 +172,7 @@ func TestManager_RecordFailure_AllDeactivated(t *testing.T) {
 	if err := m.RecordFailure(ctx, tok.ID); err != nil {
 		t.Fatalf("record failure: %v", err)
 	}
+	time.Sleep(200 * time.Millisecond) // wait for debounced refresh
 
 	gt, _ := s.CreateGateToken(ctx, "gate1")
 	_, err := m.ResolveToken(ctx, gt.ID)
@@ -192,9 +196,8 @@ func TestManager_RefreshPool(t *testing.T) {
 	}
 
 	_, _ = s.CreateRealToken(ctx, "tok1", "acc1", "ref1")
-	if err := m.RefreshPool(); err != nil {
-		t.Fatalf("refresh: %v", err)
-	}
+	m.RefreshPool()
+	time.Sleep(200 * time.Millisecond) // wait for debounced refresh
 
 	if m.pool.Len() != 1 {
 		t.Fatalf("expected 1 token after refresh, got %d", m.pool.Len())
@@ -226,6 +229,7 @@ func TestManager_StickyFallsThrough_WhenTokenDeactivated(t *testing.T) {
 	if err := m.RecordFailure(ctx, first.ID); err != nil {
 		t.Fatalf("record failure: %v", err)
 	}
+	time.Sleep(200 * time.Millisecond) // wait for debounced refresh
 
 	// Next resolve should fall through sticky and pick the other token.
 	second, err := m.ResolveToken(ctx, gt.ID)

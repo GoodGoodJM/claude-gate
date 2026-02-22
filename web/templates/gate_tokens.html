@@ -6,7 +6,7 @@
 </div>
 
 <div id="add-form" style="display:none; margin-bottom:1rem;">
-	<form method="POST" action="/admin/gate-tokens/create" class="card">
+	<form method="POST" action="/admin/api/gate-tokens" class="card">
 		<div class="form-group">
 			<label for="name">Name</label>
 			<input type="text" id="name" name="name" placeholder="e.g. agent-1" required>
@@ -57,17 +57,15 @@
 			<td class="text-muted">{{.CreatedAt.Format "2006-01-02 15:04"}}</td>
 			<td>
 				{{if .IsActive}}
-				<form class="inline" method="POST" action="/admin/gate-tokens/{{.ID}}/deactivate">
+				<form class="inline" method="POST" action="/admin/api/gate-tokens/{{.ID}}/deactivate">
 					<button type="submit" class="btn btn-sm">Deactivate</button>
 				</form>
 				{{else}}
-				<form class="inline" method="POST" action="/admin/gate-tokens/{{.ID}}/activate">
+				<form class="inline" method="POST" action="/admin/api/gate-tokens/{{.ID}}/activate">
 					<button type="submit" class="btn btn-sm btn-primary">Activate</button>
 				</form>
 				{{end}}
-				<form class="inline" method="POST" action="/admin/gate-tokens/{{.ID}}/delete" onsubmit="return confirm('Delete this token?')">
-					<button type="submit" class="btn btn-sm btn-danger">Delete</button>
-				</form>
+				<button class="btn btn-sm btn-danger" hx-delete="/admin/api/gate-tokens/{{.ID}}" hx-confirm="Delete this token?">Delete</button>
 			</td>
 		</tr>
 		{{else}}
