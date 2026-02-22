@@ -31,6 +31,7 @@
 <table>
 	<thead>
 		<tr>
+			<th>ID</th>
 			<th>Name</th>
 			<th>Token</th>
 			<th>Status</th>
@@ -43,6 +44,7 @@
 	<tbody>
 		{{range .Tokens}}
 		<tr>
+			<td class="mono text-muted">{{slice .ID 0 8}}</td>
 			<td>{{.Name}}</td>
 			<td class="mono">{{slice .Token 0 10}}...</td>
 			<td>
@@ -69,7 +71,7 @@
 			</td>
 		</tr>
 		{{else}}
-		<tr><td colspan="7" class="text-muted">No gate tokens created.</td></tr>
+		<tr><td colspan="8" class="text-muted">No gate tokens created.</td></tr>
 		{{end}}
 	</tbody>
 </table>

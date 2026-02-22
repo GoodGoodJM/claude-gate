@@ -76,7 +76,7 @@ func (m *Manager) ResolveToken(ctx context.Context, gateTokenID string) (*store.
 	// Check sticky session.
 	if realTokenID, ok := m.sticky.Resolve(ctx, gateTokenID); ok {
 		if t := m.pool.GetByID(realTokenID); t != nil {
-			m.logger.Debug("token resolved", "gate", gateTokenID, "real", realTokenID, "method", "sticky")
+			m.logger.Debug("token resolved", "gate", gateTokenID, "real", realTokenID, "real_name", t.Name, "method", "sticky")
 			return t, nil
 		}
 		// Sticky target is no longer active; fall through to round-robin.
@@ -90,7 +90,7 @@ func (m *Manager) ResolveToken(ctx context.Context, gateTokenID string) (*store.
 
 	// Bind sticky session.
 	_ = m.sticky.Bind(ctx, gateTokenID, t.ID, m.stickyTTL)
-	m.logger.Debug("token resolved", "gate", gateTokenID, "real", t.ID, "method", "round-robin")
+	m.logger.Debug("token resolved", "gate", gateTokenID, "real", t.ID, "real_name", t.Name, "method", "round-robin")
 	return t, nil
 }
 

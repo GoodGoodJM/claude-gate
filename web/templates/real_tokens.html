@@ -31,6 +31,7 @@
 <table>
 	<thead>
 		<tr>
+			<th>ID</th>
 			<th>Name</th>
 			<th>Status</th>
 			<th>Failures</th>
@@ -43,6 +44,7 @@
 	<tbody>
 		{{range .Tokens}}
 		<tr>
+			<td class="mono text-muted">{{slice .ID 0 8}}</td>
 			<td>{{.Name}}</td>
 			<td>
 				{{if .IsActive}}
@@ -69,7 +71,7 @@
 			</td>
 		</tr>
 		{{else}}
-		<tr><td colspan="7" class="text-muted">No real tokens configured.</td></tr>
+		<tr><td colspan="8" class="text-muted">No real tokens configured.</td></tr>
 		{{end}}
 	</tbody>
 </table>
