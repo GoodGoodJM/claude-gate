@@ -1,0 +1,26 @@
+{{define "login"}}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<title>Claude Gate - Login</title>
+	<link rel="stylesheet" href="/admin/static/style.css">
+</head>
+<body>
+	<div class="login-box">
+		<h1>Claude Gate</h1>
+		{{if .Error}}
+		<div class="alert alert-error">{{.Error}}</div>
+		{{end}}
+		<form method="POST" action="/admin/login">
+			<div class="form-group">
+				<label for="secret">Admin Secret</label>
+				<input type="password" id="secret" name="secret" placeholder="Enter admin secret" required autofocus>
+			</div>
+			<button type="submit" class="btn btn-primary" style="width:100%">Login</button>
+		</form>
+	</div>
+</body>
+</html>
+{{end}}

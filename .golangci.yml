@@ -1,0 +1,17 @@
+linters:
+  enable:
+    - errcheck
+    - govet
+    - staticcheck
+    - unused
+    - gosimple
+    - ineffassign
+    - typecheck
+
+linters-settings:
+  errcheck:
+    check-type-assertions: true
+
+issues:
+  exclude-dirs:
+    - vendor

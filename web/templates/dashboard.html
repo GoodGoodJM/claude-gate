@@ -1,0 +1,33 @@
+{{define "content"}}
+<h1>Dashboard</h1>
+<div class="cards">
+	<div class="card">
+		<div class="label">Real Tokens</div>
+		<div class="value">{{.RealTokenCount}}</div>
+	</div>
+	<div class="card">
+		<div class="label">Active Real Tokens</div>
+		<div class="value">{{.ActiveRealTokenCount}}</div>
+	</div>
+	<div class="card">
+		<div class="label">Gate Tokens</div>
+		<div class="value">{{.GateTokenCount}}</div>
+	</div>
+	<div class="card">
+		<div class="label">Active Gate Tokens</div>
+		<div class="value">{{.ActiveGateTokenCount}}</div>
+	</div>
+	<div class="card">
+		<div class="label">Requests (24h)</div>
+		<div class="value">{{.Usage24h.RequestCount}}</div>
+	</div>
+	<div class="card">
+		<div class="label">Input Tokens (24h)</div>
+		<div class="value">{{.Usage24h.TotalInputTokens}}</div>
+	</div>
+	<div class="card">
+		<div class="label">Output Tokens (24h)</div>
+		<div class="value">{{.Usage24h.TotalOutputTokens}}</div>
+	</div>
+</div>
+{{end}}

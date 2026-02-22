@@ -1,0 +1,78 @@
+{{define "content"}}
+<h1>Real Tokens</h1>
+
+<div class="actions">
+	<button class="btn btn-primary" onclick="document.getElementById('add-form').style.display='block'">Add Token</button>
+</div>
+
+<div id="add-form" style="display:none; margin-bottom:1rem;">
+	<form method="POST" action="/admin/real-tokens/create" class="card">
+		<div class="form-group">
+			<label for="name">Name</label>
+			<input type="text" id="name" name="name" placeholder="e.g. personal-1" required>
+		</div>
+		<div class="form-group">
+			<label for="access_token">Access Token</label>
+			<input type="text" id="access_token" name="access_token" placeholder="sk-ant-..." required>
+		</div>
+		<div class="form-group">
+			<label for="refresh_token">Refresh Token (optional)</label>
+			<input type="text" id="refresh_token" name="refresh_token" placeholder="refresh token">
+		</div>
+		<button type="submit" class="btn btn-primary">Create</button>
+		<button type="button" class="btn" onclick="document.getElementById('add-form').style.display='none'">Cancel</button>
+	</form>
+</div>
+
+{{if .Flash}}
+<div class="alert alert-success">{{.Flash}}</div>
+{{end}}
+
+<table>
+	<thead>
+		<tr>
+			<th>Name</th>
+			<th>Status</th>
+			<th>Failures</th>
+			<th>Input Tokens</th>
+			<th>Output Tokens</th>
+			<th>Last Used</th>
+			<th>Actions</th>
+		</tr>
+	</thead>
+	<tbody>
+		{{range .Tokens}}
+		<tr>
+			<td>{{.Name}}</td>
+			<td>
+				{{if .IsActive}}
+				<span class="badge badge-active">Active</span>
+				{{else}}
+				<span class="badge badge-inactive">Inactive</span>
+				{{end}}
+			</td>
+			<td>{{.FailureCount}}</td>
+			<td>{{.TotalInputTokens}}</td>
+			<td>{{.TotalOutputTokens}}</td>
+			<td class="text-muted">{{if .LastUsedAt}}{{.LastUsedAt.Format "2006-01-02 15:04"}}{{else}}-{{end}}</td>
+			<td>
+				{{if .IsActive}}
+				<form class="inline" method="POST" action="/admin/real-tokens/{{.ID}}/deactivate">
+					<button type="submit" class="btn btn-sm">Deactivate</button>
+				</form>
+				{{else}}
+				<form class="inline" method="POST" action="/admin/real-tokens/{{.ID}}/activate">
+					<button type="submit" class="btn btn-sm btn-primary">Activate</button>
+				</form>
+				{{end}}
+				<form class="inline" method="POST" action="/admin/real-tokens/{{.ID}}/delete" onsubmit="return confirm('Delete this token?')">
+					<button type="submit" class="btn btn-sm btn-danger">Delete</button>
+				</form>
+			</td>
+		</tr>
+		{{else}}
+		<tr><td colspan="7" class="text-muted">No real tokens configured.</td></tr>
+		{{end}}
+	</tbody>
+</table>
+{{end}}
