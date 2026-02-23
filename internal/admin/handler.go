@@ -1,10 +1,12 @@
 package admin
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -120,6 +122,96 @@ func respondError(w http.ResponseWriter, r *http.Request, status int, msg, redir
 	writeError(w, status, msg)
 }
 
+// adminRedirect builds a safe redirect URL with flash query parameter using net/url.
+func adminRedirect(base, flash string) string {
+	u, err := url.Parse(base)
+	if err != nil {
+		return base
+	}
+	q := u.Query()
+	q.Set("flash", flash)
+	u.RawQuery = q.Encode()
+	return u.String()
+}
+
+// setTokenActive consolidates activate/deactivate for both real and gate tokens.
+func (h *AdminHandler) setTokenActive(w http.ResponseWriter, r *http.Request, tokenType string, active bool) {
+	id := r.PathValue("id")
+	basePath := "/admin/" + tokenType + "-tokens"
+
+	var setActive func(ctx context.Context, id string, active bool) error
+	if tokenType == "real" {
+		setActive = h.store.SetRealTokenActive
+	} else {
+		setActive = h.store.SetGateTokenActive
+	}
+
+	err := setActive(r.Context(), id, active)
+	if err == sql.ErrNoRows {
+		respondError(w, r, http.StatusNotFound, tokenType+" token not found", adminRedirect(basePath, "Token not found"))
+		return
+	}
+	if err != nil {
+		action := "activate"
+		if !active {
+			action = "deactivate"
+		}
+		respondError(w, r, http.StatusInternalServerError, "failed to "+action+" "+tokenType+" token", adminRedirect(basePath, "Failed to "+action+" token"))
+		return
+	}
+
+	action := "activated"
+	status := "active"
+	if !active {
+		action = "deactivated"
+		status = "inactive"
+	}
+	h.logger.Info(tokenType+" token "+action, "id", id)
+	if tokenType == "real" {
+		h.onPoolChanged()
+	}
+	respondSuccess(w, r, http.StatusOK, map[string]string{"id": id, "status": status}, adminRedirect(basePath, "Token "+action))
+}
+
+// deleteToken consolidates delete for both real and gate tokens.
+func (h *AdminHandler) deleteToken(w http.ResponseWriter, r *http.Request, tokenType string) {
+	id := r.PathValue("id")
+	basePath := "/admin/" + tokenType + "-tokens"
+
+	var deleteFn func(ctx context.Context, id string) error
+	if tokenType == "real" {
+		deleteFn = h.store.DeleteRealToken
+	} else {
+		deleteFn = h.store.DeleteGateToken
+	}
+
+	err := deleteFn(r.Context(), id)
+	if err == sql.ErrNoRows {
+		respondError(w, r, http.StatusNotFound, tokenType+" token not found", adminRedirect(basePath, "Token not found"))
+		return
+	}
+	if err != nil {
+		respondError(w, r, http.StatusInternalServerError, "failed to delete "+tokenType+" token", adminRedirect(basePath, "Failed to delete token"))
+		return
+	}
+	h.logger.Info(tokenType+" token deleted", "id", id)
+	if tokenType == "real" {
+		h.onPoolChanged()
+	}
+	respondSuccess(w, r, http.StatusOK, map[string]string{"id": id}, adminRedirect(basePath, "Token deleted"))
+}
+
+// handleUsage consolidates the three usage handler functions.
+func (h *AdminHandler) handleUsage(w http.ResponseWriter, r *http.Request, queryFn func(context.Context, time.Time) (*store.UsageStats, error)) {
+	since := parseSince(r)
+	stats, err := queryFn(r.Context(), since)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to get usage stats")
+		return
+	}
+	writeJSON(w, http.StatusOK, stats)
+}
+
 // --- Real Token handlers ---
 
 func (h *AdminHandler) listRealTokens(w http.ResponseWriter, r *http.Request) {
@@ -155,17 +247,17 @@ func (h *AdminHandler) createRealToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if req.Name == "" || req.AccessToken == "" {
-		respondError(w, r, http.StatusBadRequest, "name and access_token are required", "/admin/real-tokens?flash=Name+and+access_token+are+required")
+		respondError(w, r, http.StatusBadRequest, "name and access_token are required", adminRedirect("/admin/real-tokens", "Name and access_token are required"))
 		return
 	}
 	t, err := h.store.CreateRealToken(r.Context(), req.Name, req.AccessToken, req.RefreshToken)
 	if err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to create real token", "/admin/real-tokens?flash=Failed+to+create+token")
+		respondError(w, r, http.StatusInternalServerError, "failed to create real token", adminRedirect("/admin/real-tokens", "Failed to create token"))
 		return
 	}
 	h.logger.Info("real token created", "id", t.ID, "name", req.Name)
 	h.onPoolChanged()
-	respondSuccess(w, r, http.StatusCreated, sanitizeRealToken(t), "/admin/real-tokens?flash=Token+created")
+	respondSuccess(w, r, http.StatusCreated, sanitizeRealToken(t), adminRedirect("/admin/real-tokens", "Token created"))
 }
 
 type updateTokenRequest struct {
@@ -197,51 +289,15 @@ func (h *AdminHandler) updateRealToken(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *AdminHandler) deleteRealToken(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
-	err := h.store.DeleteRealToken(r.Context(), id)
-	if err == sql.ErrNoRows {
-		respondError(w, r, http.StatusNotFound, "real token not found", "/admin/real-tokens?flash=Token+not+found")
-		return
-	}
-	if err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to delete real token", "/admin/real-tokens?flash=Failed+to+delete+token")
-		return
-	}
-	h.logger.Info("real token deleted", "id", id)
-	h.onPoolChanged()
-	respondSuccess(w, r, http.StatusOK, map[string]string{"id": id}, "/admin/real-tokens?flash=Token+deleted")
+	h.deleteToken(w, r, "real")
 }
 
 func (h *AdminHandler) activateRealToken(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
-	err := h.store.SetRealTokenActive(r.Context(), id, true)
-	if err == sql.ErrNoRows {
-		respondError(w, r, http.StatusNotFound, "real token not found", "/admin/real-tokens?flash=Token+not+found")
-		return
-	}
-	if err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to activate real token", "/admin/real-tokens?flash=Failed+to+activate+token")
-		return
-	}
-	h.logger.Info("real token activated", "id", id)
-	h.onPoolChanged()
-	respondSuccess(w, r, http.StatusOK, map[string]string{"id": id, "status": "active"}, "/admin/real-tokens?flash=Token+activated")
+	h.setTokenActive(w, r, "real", true)
 }
 
 func (h *AdminHandler) deactivateRealToken(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
-	err := h.store.SetRealTokenActive(r.Context(), id, false)
-	if err == sql.ErrNoRows {
-		respondError(w, r, http.StatusNotFound, "real token not found", "/admin/real-tokens?flash=Token+not+found")
-		return
-	}
-	if err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to deactivate real token", "/admin/real-tokens?flash=Failed+to+deactivate+token")
-		return
-	}
-	h.logger.Info("real token deactivated", "id", id)
-	h.onPoolChanged()
-	respondSuccess(w, r, http.StatusOK, map[string]string{"id": id, "status": "inactive"}, "/admin/real-tokens?flash=Token+deactivated")
+	h.setTokenActive(w, r, "real", false)
 }
 
 // --- Gate Token handlers ---
@@ -272,16 +328,21 @@ func (h *AdminHandler) createGateToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if req.Name == "" {
-		respondError(w, r, http.StatusBadRequest, "name is required", "/admin/gate-tokens?flash=Name+is+required")
+		respondError(w, r, http.StatusBadRequest, "name is required", adminRedirect("/admin/gate-tokens", "Name is required"))
 		return
 	}
 	t, err := h.store.CreateGateToken(r.Context(), req.Name)
 	if err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to create gate token", "/admin/gate-tokens?flash=Failed+to+create+token")
+		respondError(w, r, http.StatusInternalServerError, "failed to create gate token", adminRedirect("/admin/gate-tokens", "Failed to create token"))
 		return
 	}
 	h.logger.Info("gate token created", "id", t.ID, "name", req.Name)
-	respondSuccess(w, r, http.StatusCreated, t, "/admin/gate-tokens?flash=Token+created&new_token="+t.Token)
+	u, _ := url.Parse("/admin/gate-tokens")
+	q := u.Query()
+	q.Set("flash", "Token created")
+	q.Set("new_token", t.Token)
+	u.RawQuery = q.Encode()
+	respondSuccess(w, r, http.StatusCreated, t, u.String())
 }
 
 func (h *AdminHandler) updateGateToken(w http.ResponseWriter, r *http.Request) {
@@ -309,48 +370,15 @@ func (h *AdminHandler) updateGateToken(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *AdminHandler) deleteGateToken(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
-	err := h.store.DeleteGateToken(r.Context(), id)
-	if err == sql.ErrNoRows {
-		respondError(w, r, http.StatusNotFound, "gate token not found", "/admin/gate-tokens?flash=Token+not+found")
-		return
-	}
-	if err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to delete gate token", "/admin/gate-tokens?flash=Failed+to+delete+token")
-		return
-	}
-	h.logger.Info("gate token deleted", "id", id)
-	respondSuccess(w, r, http.StatusOK, map[string]string{"id": id}, "/admin/gate-tokens?flash=Token+deleted")
+	h.deleteToken(w, r, "gate")
 }
 
 func (h *AdminHandler) activateGateToken(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
-	err := h.store.SetGateTokenActive(r.Context(), id, true)
-	if err == sql.ErrNoRows {
-		respondError(w, r, http.StatusNotFound, "gate token not found", "/admin/gate-tokens?flash=Token+not+found")
-		return
-	}
-	if err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to activate gate token", "/admin/gate-tokens?flash=Failed+to+activate+token")
-		return
-	}
-	h.logger.Info("gate token activated", "id", id)
-	respondSuccess(w, r, http.StatusOK, map[string]string{"id": id, "status": "active"}, "/admin/gate-tokens?flash=Token+activated")
+	h.setTokenActive(w, r, "gate", true)
 }
 
 func (h *AdminHandler) deactivateGateToken(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
-	err := h.store.SetGateTokenActive(r.Context(), id, false)
-	if err == sql.ErrNoRows {
-		respondError(w, r, http.StatusNotFound, "gate token not found", "/admin/gate-tokens?flash=Token+not+found")
-		return
-	}
-	if err != nil {
-		respondError(w, r, http.StatusInternalServerError, "failed to deactivate gate token", "/admin/gate-tokens?flash=Failed+to+deactivate+token")
-		return
-	}
-	h.logger.Info("gate token deactivated", "id", id)
-	respondSuccess(w, r, http.StatusOK, map[string]string{"id": id, "status": "inactive"}, "/admin/gate-tokens?flash=Token+deactivated")
+	h.setTokenActive(w, r, "gate", false)
 }
 
 // --- Usage handlers ---
@@ -368,33 +396,21 @@ func parseSince(r *http.Request) time.Time {
 }
 
 func (h *AdminHandler) getUsage(w http.ResponseWriter, r *http.Request) {
-	since := parseSince(r)
-	stats, err := h.store.GetUsageStats(r.Context(), since)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to get usage stats")
-		return
-	}
-	writeJSON(w, http.StatusOK, stats)
+	h.handleUsage(w, r, func(ctx context.Context, since time.Time) (*store.UsageStats, error) {
+		return h.store.GetUsageStats(ctx, since)
+	})
 }
 
 func (h *AdminHandler) getUsageByRealToken(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	since := parseSince(r)
-	stats, err := h.store.GetUsageStatsByRealToken(r.Context(), id, since)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to get usage stats")
-		return
-	}
-	writeJSON(w, http.StatusOK, stats)
+	h.handleUsage(w, r, func(ctx context.Context, since time.Time) (*store.UsageStats, error) {
+		return h.store.GetUsageStatsByRealToken(ctx, id, since)
+	})
 }
 
 func (h *AdminHandler) getUsageByGateToken(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	since := parseSince(r)
-	stats, err := h.store.GetUsageStatsByGateToken(r.Context(), id, since)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to get usage stats")
-		return
-	}
-	writeJSON(w, http.StatusOK, stats)
+	h.handleUsage(w, r, func(ctx context.Context, since time.Time) (*store.UsageStats, error) {
+		return h.store.GetUsageStatsByGateToken(ctx, id, since)
+	})
 }

@@ -9,6 +9,8 @@ import (
 	"github.com/jellydator/ttlcache/v3"
 )
 
+const dbCleanupInterval = 5 * time.Minute
+
 // StickyManager provides gate-token-to-real-token affinity with an in-memory
 // cache backed by the database for persistence across restarts.
 type StickyManager struct {
@@ -87,7 +89,7 @@ func (sm *StickyManager) Bind(ctx context.Context, gateTokenID, realTokenID stri
 
 func (sm *StickyManager) dbCleanupLoop(ctx context.Context) {
 	defer close(sm.done)
-	ticker := time.NewTicker(5 * time.Minute)
+	ticker := time.NewTicker(dbCleanupInterval)
 	defer ticker.Stop()
 	for {
 		select {

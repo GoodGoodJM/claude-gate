@@ -44,6 +44,10 @@ func (s *Store) InsertUsageLog(ctx context.Context, log *UsageLog) error {
 }
 
 func (s *Store) InsertUsageLogs(ctx context.Context, logs []UsageLog) error {
+	if len(logs) == 0 {
+		return nil
+	}
+
 	tx, err := s.writeDB.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
@@ -75,12 +79,12 @@ func (s *Store) InsertUsageLogs(ctx context.Context, logs []UsageLog) error {
 	return tx.Commit()
 }
 
-func (s *Store) GetUsageStats(ctx context.Context, since time.Time) (*UsageStats, error) {
+func (s *Store) queryUsageStats(ctx context.Context, where string, args ...any) (*UsageStats, error) {
 	row := s.readDB.QueryRowContext(ctx,
 		`SELECT COALESCE(SUM(input_tokens), 0), COALESCE(SUM(output_tokens), 0),
 		        COALESCE(SUM(cache_creation_input_tokens), 0), COALESCE(SUM(cache_read_input_tokens), 0),
 		        COUNT(*)
-		 FROM usage_logs WHERE created_at >= ?`, since,
+		 FROM usage_logs WHERE `+where, args...,
 	)
 	var stats UsageStats
 	err := row.Scan(
@@ -89,47 +93,21 @@ func (s *Store) GetUsageStats(ctx context.Context, since time.Time) (*UsageStats
 		&stats.RequestCount,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("get usage stats: %w", err)
+		return nil, err
 	}
 	return &stats, nil
+}
+
+func (s *Store) GetUsageStats(ctx context.Context, since time.Time) (*UsageStats, error) {
+	return s.queryUsageStats(ctx, "created_at >= ?", since)
 }
 
 func (s *Store) GetUsageStatsByRealToken(ctx context.Context, realTokenID string, since time.Time) (*UsageStats, error) {
-	row := s.readDB.QueryRowContext(ctx,
-		`SELECT COALESCE(SUM(input_tokens), 0), COALESCE(SUM(output_tokens), 0),
-		        COALESCE(SUM(cache_creation_input_tokens), 0), COALESCE(SUM(cache_read_input_tokens), 0),
-		        COUNT(*)
-		 FROM usage_logs WHERE real_token_id = ? AND created_at >= ?`, realTokenID, since,
-	)
-	var stats UsageStats
-	err := row.Scan(
-		&stats.TotalInputTokens, &stats.TotalOutputTokens,
-		&stats.CacheCreationInputTokens, &stats.CacheReadInputTokens,
-		&stats.RequestCount,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("get usage stats by real token: %w", err)
-	}
-	return &stats, nil
+	return s.queryUsageStats(ctx, "real_token_id = ? AND created_at >= ?", realTokenID, since)
 }
 
 func (s *Store) GetUsageStatsByGateToken(ctx context.Context, gateTokenID string, since time.Time) (*UsageStats, error) {
-	row := s.readDB.QueryRowContext(ctx,
-		`SELECT COALESCE(SUM(input_tokens), 0), COALESCE(SUM(output_tokens), 0),
-		        COALESCE(SUM(cache_creation_input_tokens), 0), COALESCE(SUM(cache_read_input_tokens), 0),
-		        COUNT(*)
-		 FROM usage_logs WHERE gate_token_id = ? AND created_at >= ?`, gateTokenID, since,
-	)
-	var stats UsageStats
-	err := row.Scan(
-		&stats.TotalInputTokens, &stats.TotalOutputTokens,
-		&stats.CacheCreationInputTokens, &stats.CacheReadInputTokens,
-		&stats.RequestCount,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("get usage stats by gate token: %w", err)
-	}
-	return &stats, nil
+	return s.queryUsageStats(ctx, "gate_token_id = ? AND created_at >= ?", gateTokenID, since)
 }
 
 func (s *Store) ListUsageLogs(ctx context.Context, limit, offset int) ([]UsageLog, error) {

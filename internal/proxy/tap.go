@@ -71,22 +71,22 @@ func (t *tappingReader) scan(chunk []byte) {
 }
 
 var (
-	dataPrefix        = []byte("data: ")
-	messageStartKey   = []byte("message_start")
-	messageDeltaKey   = []byte("message_delta")
+	sseDataPrefix        = []byte("data: ")
+	sseEventMessageStart = []byte("message_start")
+	sseEventMessageDelta = []byte("message_delta")
 )
 
 // processLine checks a single SSE line for usage data.
 func (t *tappingReader) processLine(line []byte) {
 	// Only look at SSE data lines.
-	if !bytes.HasPrefix(line, dataPrefix) {
+	if !bytes.HasPrefix(line, sseDataPrefix) {
 		return
 	}
-	payload := line[len(dataPrefix):]
+	payload := line[len(sseDataPrefix):]
 
 	// Fast path: skip JSON parsing unless the line is relevant.
-	hasStart := bytes.Contains(payload, messageStartKey)
-	hasDelta := bytes.Contains(payload, messageDeltaKey)
+	hasStart := bytes.Contains(payload, sseEventMessageStart)
+	hasDelta := bytes.Contains(payload, sseEventMessageDelta)
 	if !hasStart && !hasDelta {
 		return
 	}
@@ -98,15 +98,19 @@ func (t *tappingReader) processLine(line []byte) {
 	}
 }
 
+// usageFields holds common token-usage counters shared across SSE and JSON envelopes.
+type usageFields struct {
+	InputTokens              int64 `json:"input_tokens"`
+	OutputTokens             int64 `json:"output_tokens"`
+	CacheCreationInputTokens int64 `json:"cache_creation_input_tokens"`
+	CacheReadInputTokens     int64 `json:"cache_read_input_tokens"`
+}
+
 // messageStartEnvelope is the minimal structure for "message_start" events.
 type messageStartEnvelope struct {
 	Message struct {
-		Model string `json:"model"`
-		Usage struct {
-			InputTokens              int64 `json:"input_tokens"`
-			CacheCreationInputTokens int64 `json:"cache_creation_input_tokens"`
-			CacheReadInputTokens     int64 `json:"cache_read_input_tokens"`
-		} `json:"usage"`
+		Model string      `json:"model"`
+		Usage usageFields `json:"usage"`
 	} `json:"message"`
 }
 
@@ -123,9 +127,7 @@ func (t *tappingReader) parseMessageStart(data []byte) {
 
 // messageDeltaEnvelope is the minimal structure for "message_delta" events.
 type messageDeltaEnvelope struct {
-	Usage struct {
-		OutputTokens int64 `json:"output_tokens"`
-	} `json:"usage"`
+	Usage usageFields `json:"usage"`
 }
 
 func (t *tappingReader) parseMessageDelta(data []byte) {

@@ -76,7 +76,7 @@ func (s *Store) ListRealTokens(ctx context.Context) ([]RealToken, error) {
 
 	var tokens []RealToken
 	for rows.Next() {
-		t, err := scanRealTokenRows(rows)
+		t, err := scanRealToken(rows)
 		if err != nil {
 			return nil, err
 		}
@@ -98,7 +98,7 @@ func (s *Store) ListActiveRealTokens(ctx context.Context, maxFailures int) ([]Re
 
 	var tokens []RealToken
 	for rows.Next() {
-		t, err := scanRealTokenRows(rows)
+		t, err := scanRealToken(rows)
 		if err != nil {
 			return nil, err
 		}
@@ -126,10 +126,7 @@ func (s *Store) UpdateRealToken(ctx context.Context, id, name string) error {
 }
 
 func (s *Store) SetRealTokenActive(ctx context.Context, id string, active bool) error {
-	val := 0
-	if active {
-		val = 1
-	}
+	val := boolToInt(active)
 	res, err := s.writeDB.ExecContext(ctx,
 		`UPDATE real_tokens SET is_active = ?, failure_count = CASE WHEN ? = 1 THEN 0 ELSE failure_count END, updated_at = datetime('now') WHERE id = ?`,
 		val, val, id,
@@ -148,38 +145,9 @@ func (s *Store) SetRealTokenActive(ctx context.Context, id string, active bool) 
 }
 
 func (s *Store) DeleteRealToken(ctx context.Context, id string) error {
-	tx, err := s.writeDB.BeginTx(ctx, nil)
-	if err != nil {
-		return fmt.Errorf("delete real token: begin tx: %w", err)
-	}
-
-	if _, err := tx.ExecContext(ctx, `DELETE FROM sticky_sessions WHERE real_token_id = ?`, id); err != nil {
-		_ = tx.Rollback()
-		return fmt.Errorf("delete real token: delete sticky sessions: %w", err)
-	}
-
-	if _, err := tx.ExecContext(ctx, `DELETE FROM usage_logs WHERE real_token_id = ?`, id); err != nil {
-		_ = tx.Rollback()
-		return fmt.Errorf("delete real token: delete usage logs: %w", err)
-	}
-
-	res, err := tx.ExecContext(ctx, `DELETE FROM real_tokens WHERE id = ?`, id)
-	if err != nil {
-		_ = tx.Rollback()
-		return fmt.Errorf("delete real token: %w", err)
-	}
-
-	n, err := res.RowsAffected()
-	if err != nil {
-		_ = tx.Rollback()
-		return fmt.Errorf("delete real token: rows affected: %w", err)
-	}
-	if n == 0 {
-		_ = tx.Rollback()
-		return sql.ErrNoRows
-	}
-
-	return tx.Commit()
+	return s.withTx(ctx, func(tx *sql.Tx) error {
+		return cascadeDelete(ctx, tx, "real_token_id", id, "real_tokens")
+	})
 }
 
 func (s *Store) IncrementRealTokenFailure(ctx context.Context, id string) error {
@@ -223,8 +191,4 @@ func scanRealToken(row rowScanner) (*RealToken, error) {
 	}
 	t.IsActive = isActive == 1
 	return &t, nil
-}
-
-func scanRealTokenRows(rows *sql.Rows) (*RealToken, error) {
-	return scanRealToken(rows)
 }

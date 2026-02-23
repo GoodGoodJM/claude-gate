@@ -11,6 +11,7 @@ import (
 const (
 	usageFlushInterval = 1 * time.Second
 	usageBatchSize     = 100
+	usageMaxRetries    = 3
 )
 
 // UsageWriter reads usage entries from a channel and batch-writes them to the store.
@@ -109,7 +110,7 @@ func (uw *UsageWriter) flush() {
 
 	if err := uw.store.InsertUsageLogs(uw.ctx, logs); err != nil {
 		uw.logger.Error("failed to insert usage logs", "error", err, "retry", uw.retryCount)
-		if uw.retryCount < 3 {
+		if uw.retryCount < usageMaxRetries {
 			uw.retryBuf = append(uw.retryBuf[:0], uw.buf...)
 			uw.retryCount++
 		} else {
@@ -121,12 +122,33 @@ func (uw *UsageWriter) flush() {
 	}
 	uw.retryCount = 0
 
-	// Update cumulative counters on gate and real tokens.
+	// Aggregate per-token usage, then update once per token.
+	type tokenUsage struct {
+		input, output int64
+	}
+	gateAgg := make(map[string]*tokenUsage)
+	realAgg := make(map[string]*tokenUsage)
 	for _, e := range uw.buf {
-		if err := uw.store.UpdateGateTokenUsage(uw.ctx, e.GateTokenID, e.Usage.InputTokens, e.Usage.OutputTokens); err != nil {
+		if g, ok := gateAgg[e.GateTokenID]; ok {
+			g.input += e.Usage.InputTokens
+			g.output += e.Usage.OutputTokens
+		} else {
+			gateAgg[e.GateTokenID] = &tokenUsage{e.Usage.InputTokens, e.Usage.OutputTokens}
+		}
+		if r, ok := realAgg[e.RealTokenID]; ok {
+			r.input += e.Usage.InputTokens
+			r.output += e.Usage.OutputTokens
+		} else {
+			realAgg[e.RealTokenID] = &tokenUsage{e.Usage.InputTokens, e.Usage.OutputTokens}
+		}
+	}
+	for id, u := range gateAgg {
+		if err := uw.store.UpdateGateTokenUsage(uw.ctx, id, u.input, u.output); err != nil {
 			uw.logger.Error("failed to update gate token usage", "error", err)
 		}
-		if err := uw.store.UpdateRealTokenUsage(uw.ctx, e.RealTokenID, e.Usage.InputTokens, e.Usage.OutputTokens); err != nil {
+	}
+	for id, u := range realAgg {
+		if err := uw.store.UpdateRealTokenUsage(uw.ctx, id, u.input, u.output); err != nil {
 			uw.logger.Error("failed to update real token usage", "error", err)
 		}
 	}

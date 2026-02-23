@@ -9,6 +9,8 @@ import (
 	"github.com/ggmolly/claude-gate/internal/store"
 )
 
+const poolRefreshDebounce = 100 * time.Millisecond
+
 // Manager combines a TokenPool with a StickyManager to resolve real tokens
 // for incoming gate-token requests.
 type Manager struct {
@@ -60,7 +62,7 @@ func (m *Manager) RefreshPool() {
 	if m.refreshTimer != nil {
 		m.refreshTimer.Stop()
 	}
-	m.refreshTimer = time.AfterFunc(100*time.Millisecond, func() {
+	m.refreshTimer = time.AfterFunc(poolRefreshDebounce, func() {
 		if err := m.pool.Refresh(m.ctx); err != nil {
 			m.logger.Error("failed to refresh token pool", "error", err)
 		} else {

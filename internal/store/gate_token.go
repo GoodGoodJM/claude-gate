@@ -110,10 +110,7 @@ func (s *Store) UpdateGateToken(ctx context.Context, id, name string) error {
 }
 
 func (s *Store) SetGateTokenActive(ctx context.Context, id string, active bool) error {
-	val := 0
-	if active {
-		val = 1
-	}
+	val := boolToInt(active)
 	res, err := s.writeDB.ExecContext(ctx,
 		`UPDATE gate_tokens SET is_active = ?, updated_at = datetime('now') WHERE id = ?`,
 		val, id,
@@ -132,38 +129,9 @@ func (s *Store) SetGateTokenActive(ctx context.Context, id string, active bool) 
 }
 
 func (s *Store) DeleteGateToken(ctx context.Context, id string) error {
-	tx, err := s.writeDB.BeginTx(ctx, nil)
-	if err != nil {
-		return fmt.Errorf("delete gate token: begin tx: %w", err)
-	}
-
-	if _, err := tx.ExecContext(ctx, `DELETE FROM sticky_sessions WHERE gate_token_id = ?`, id); err != nil {
-		_ = tx.Rollback()
-		return fmt.Errorf("delete gate token: delete sticky sessions: %w", err)
-	}
-
-	if _, err := tx.ExecContext(ctx, `DELETE FROM usage_logs WHERE gate_token_id = ?`, id); err != nil {
-		_ = tx.Rollback()
-		return fmt.Errorf("delete gate token: delete usage logs: %w", err)
-	}
-
-	res, err := tx.ExecContext(ctx, `DELETE FROM gate_tokens WHERE id = ?`, id)
-	if err != nil {
-		_ = tx.Rollback()
-		return fmt.Errorf("delete gate token: %w", err)
-	}
-
-	n, err := res.RowsAffected()
-	if err != nil {
-		_ = tx.Rollback()
-		return fmt.Errorf("delete gate token: rows affected: %w", err)
-	}
-	if n == 0 {
-		_ = tx.Rollback()
-		return sql.ErrNoRows
-	}
-
-	return tx.Commit()
+	return s.withTx(ctx, func(tx *sql.Tx) error {
+		return cascadeDelete(ctx, tx, "gate_token_id", id, "gate_tokens")
+	})
 }
 
 func (s *Store) UpdateGateTokenUsage(ctx context.Context, id string, inputTokens, outputTokens int64) error {

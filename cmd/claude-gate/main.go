@@ -18,6 +18,12 @@ import (
 	"github.com/ggmolly/claude-gate/web"
 )
 
+const (
+	serverReadTimeout     = 30 * time.Second
+	serverIdleTimeout     = 120 * time.Second
+	serverShutdownTimeout = 10 * time.Second
+)
+
 func main() {
 	cfg, err := config.Load()
 	if err != nil {
@@ -72,9 +78,9 @@ func main() {
 	srv := &http.Server{
 		Addr:         cfg.Addr,
 		Handler:      web.WrapMux(mux),
-		ReadTimeout:  30 * time.Second,
+		ReadTimeout:  serverReadTimeout,
 		WriteTimeout: 0, // no timeout for SSE streaming
-		IdleTimeout:  120 * time.Second,
+		IdleTimeout:  serverIdleTimeout,
 	}
 
 	go func() {
@@ -87,7 +93,7 @@ func main() {
 	<-ctx.Done()
 	logger.Info("shutting down...")
 
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), serverShutdownTimeout)
 	defer cancel()
 
 	if err := srv.Shutdown(shutdownCtx); err != nil {

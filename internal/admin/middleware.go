@@ -2,9 +2,10 @@ package admin
 
 import (
 	"crypto/subtle"
-	"encoding/json"
 	"net/http"
 	"strings"
+
+	"github.com/ggmolly/claude-gate/internal/httputil"
 )
 
 // AdminAuth returns middleware that checks for a valid admin Bearer token
@@ -28,13 +29,12 @@ func AdminAuth(secret string, sessionAuth func(*http.Request) bool) func(http.Ha
 				return
 			}
 
-			writeError(w, http.StatusUnauthorized, "missing or invalid authorization")
+			httputil.WriteJSONError(w, http.StatusUnauthorized, "missing or invalid authorization")
 		})
 	}
 }
 
+// writeError delegates to the shared httputil.WriteJSONError.
 func writeError(w http.ResponseWriter, status int, msg string) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(map[string]string{"error": msg})
+	httputil.WriteJSONError(w, status, msg)
 }

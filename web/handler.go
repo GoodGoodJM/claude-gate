@@ -14,7 +14,10 @@ import (
 	"github.com/jellydator/ttlcache/v3"
 )
 
-const sessionCookieName = "claude_gate_session"
+const (
+	sessionCookieName = "claude_gate_session"
+	sessionTTL        = 24 * time.Hour
+)
 
 // Handler serves the admin web UI.
 type Handler struct {
@@ -33,7 +36,7 @@ func NewHandler(s *store.Store, adminSecret string, logger *slog.Logger) (*Handl
 		return nil, err
 	}
 	sessions := ttlcache.New[string, bool](
-		ttlcache.WithTTL[string, bool](24 * time.Hour),
+		ttlcache.WithTTL[string, bool](sessionTTL),
 	)
 	go sessions.Start()
 
@@ -132,7 +135,7 @@ func (h *Handler) loginSubmit(w http.ResponseWriter, r *http.Request) {
 		Path:     "/admin",
 		HttpOnly: true,
 		SameSite: http.SameSiteLaxMode,
-		MaxAge:   86400,
+		MaxAge:   int(sessionTTL.Seconds()),
 	})
 	http.Redirect(w, r, "/admin/", http.StatusSeeOther)
 }
