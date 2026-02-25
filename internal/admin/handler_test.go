@@ -316,7 +316,7 @@ func TestCreateGateToken_MissingName(t *testing.T) {
 func TestUpdateGateToken(t *testing.T) {
 	_, mux, s := setupTestHandler(t)
 	ctx := context.Background()
-	tok, _ := s.CreateGateToken(ctx, "old-name")
+	tok, _ := s.CreateGateToken(ctx, "old-name", "")
 
 	body := updateTokenRequest{Name: "new-name"}
 	req := authedRequest("PUT", "/admin/api/gate-tokens/"+tok.ID, body)
@@ -341,7 +341,7 @@ func TestUpdateGateToken_NotFound(t *testing.T) {
 func TestDeleteGateToken(t *testing.T) {
 	_, mux, s := setupTestHandler(t)
 	ctx := context.Background()
-	tok, _ := s.CreateGateToken(ctx, "to-delete")
+	tok, _ := s.CreateGateToken(ctx, "to-delete", "")
 
 	req := authedRequest("DELETE", "/admin/api/gate-tokens/"+tok.ID, nil)
 	rr := doRequest(mux, req)
@@ -364,7 +364,7 @@ func TestDeleteGateToken_NotFound(t *testing.T) {
 func TestActivateGateToken(t *testing.T) {
 	_, mux, s := setupTestHandler(t)
 	ctx := context.Background()
-	tok, _ := s.CreateGateToken(ctx, "tok")
+	tok, _ := s.CreateGateToken(ctx, "tok", "")
 	_ = s.SetGateTokenActive(ctx, tok.ID, false)
 
 	req := authedRequest("POST", "/admin/api/gate-tokens/"+tok.ID+"/activate", nil)
@@ -378,7 +378,7 @@ func TestActivateGateToken(t *testing.T) {
 func TestDeactivateGateToken(t *testing.T) {
 	_, mux, s := setupTestHandler(t)
 	ctx := context.Background()
-	tok, _ := s.CreateGateToken(ctx, "tok")
+	tok, _ := s.CreateGateToken(ctx, "tok", "")
 
 	req := authedRequest("POST", "/admin/api/gate-tokens/"+tok.ID+"/deactivate", nil)
 	rr := doRequest(mux, req)
@@ -394,7 +394,7 @@ func TestGetUsage(t *testing.T) {
 	_, mux, s := setupTestHandler(t)
 	ctx := context.Background()
 	rt, _ := s.CreateRealToken(ctx, "rt", "a", "r")
-	gt, _ := s.CreateGateToken(ctx, "gt")
+	gt, _ := s.CreateGateToken(ctx, "gt", "")
 	_ = s.InsertUsageLog(ctx, &store.UsageLog{
 		GateTokenID:  gt.ID,
 		RealTokenID:  rt.ID,
@@ -428,7 +428,7 @@ func TestGetUsageByRealToken(t *testing.T) {
 	_, mux, s := setupTestHandler(t)
 	ctx := context.Background()
 	rt, _ := s.CreateRealToken(ctx, "rt", "a", "r")
-	gt, _ := s.CreateGateToken(ctx, "gt")
+	gt, _ := s.CreateGateToken(ctx, "gt", "")
 	_ = s.InsertUsageLog(ctx, &store.UsageLog{
 		GateTokenID:  gt.ID,
 		RealTokenID:  rt.ID,
@@ -459,7 +459,7 @@ func TestGetUsageByGateToken(t *testing.T) {
 	_, mux, s := setupTestHandler(t)
 	ctx := context.Background()
 	rt, _ := s.CreateRealToken(ctx, "rt", "a", "r")
-	gt, _ := s.CreateGateToken(ctx, "gt")
+	gt, _ := s.CreateGateToken(ctx, "gt", "")
 	_ = s.InsertUsageLog(ctx, &store.UsageLog{
 		GateTokenID:  gt.ID,
 		RealTokenID:  rt.ID,

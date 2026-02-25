@@ -26,7 +26,7 @@ func TestManager_ResolveToken_RoundRobin(t *testing.T) {
 	// Create distinct gate tokens for round-robin distribution.
 	seen := make(map[string]bool)
 	for i := range 4 {
-		gt, _ := s.CreateGateToken(ctx, fmt.Sprintf("gate%d", i))
+		gt, _ := s.CreateGateToken(ctx, fmt.Sprintf("gate%d", i), "")
 		tok, err := m.ResolveToken(ctx, gt.ID)
 		if err != nil {
 			t.Fatalf("resolve: %v", err)
@@ -52,7 +52,7 @@ func TestManager_ResolveToken_StickySession(t *testing.T) {
 	}
 	defer m.Stop()
 
-	gt, _ := s.CreateGateToken(ctx, "gate-sticky")
+	gt, _ := s.CreateGateToken(ctx, "gate-sticky", "")
 
 	// First resolve creates a sticky binding.
 	first, err := m.ResolveToken(ctx, gt.ID)
@@ -84,7 +84,7 @@ func TestManager_ResolveToken_StickyExpiry(t *testing.T) {
 	}
 	defer m.Stop()
 
-	gt, _ := s.CreateGateToken(ctx, "gate-expiry")
+	gt, _ := s.CreateGateToken(ctx, "gate-expiry", "")
 
 	_, err := m.ResolveToken(ctx, gt.ID)
 	if err != nil {
@@ -113,7 +113,7 @@ func TestManager_ResolveToken_NoTokens(t *testing.T) {
 	}
 	defer m.Stop()
 
-	gt, _ := s.CreateGateToken(ctx, "gate1")
+	gt, _ := s.CreateGateToken(ctx, "gate1", "")
 	_, err := m.ResolveToken(ctx, gt.ID)
 	if err != ErrNoAvailableTokens {
 		t.Fatalf("expected ErrNoAvailableTokens, got %v", err)
@@ -174,7 +174,7 @@ func TestManager_RecordFailure_AllDeactivated(t *testing.T) {
 	}
 	time.Sleep(200 * time.Millisecond) // wait for debounced refresh
 
-	gt, _ := s.CreateGateToken(ctx, "gate1")
+	gt, _ := s.CreateGateToken(ctx, "gate1", "")
 	_, err := m.ResolveToken(ctx, gt.ID)
 	if err != ErrNoAvailableTokens {
 		t.Fatalf("expected ErrNoAvailableTokens, got %v", err)
@@ -217,7 +217,7 @@ func TestManager_StickyFallsThrough_WhenTokenDeactivated(t *testing.T) {
 	}
 	defer m.Stop()
 
-	gt, _ := s.CreateGateToken(ctx, "gate-test")
+	gt, _ := s.CreateGateToken(ctx, "gate-test", "")
 
 	// First resolve creates a sticky binding.
 	first, err := m.ResolveToken(ctx, gt.ID)

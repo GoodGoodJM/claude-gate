@@ -315,14 +315,15 @@ func (h *AdminHandler) listGateTokens(w http.ResponseWriter, r *http.Request) {
 }
 
 type createGateTokenRequest struct {
-	Name string `json:"name"`
+	Name  string `json:"name"`
+	Token string `json:"token"`
 }
 
 func (h *AdminHandler) createGateToken(w http.ResponseWriter, r *http.Request) {
 	var req createGateTokenRequest
 	if isFormRequest(r) {
 		_ = r.ParseForm()
-		req = createGateTokenRequest{Name: r.FormValue("name")}
+		req = createGateTokenRequest{Name: r.FormValue("name"), Token: r.FormValue("token")}
 	} else if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
@@ -331,7 +332,11 @@ func (h *AdminHandler) createGateToken(w http.ResponseWriter, r *http.Request) {
 		respondError(w, r, http.StatusBadRequest, "name is required", adminRedirect("/admin/gate-tokens", "Name is required"))
 		return
 	}
-	t, err := h.store.CreateGateToken(r.Context(), req.Name)
+	if req.Token != "" && !strings.HasPrefix(req.Token, "gate-") {
+		respondError(w, r, http.StatusBadRequest, "custom token must start with 'gate-'", adminRedirect("/admin/gate-tokens", "Token must start with gate-"))
+		return
+	}
+	t, err := h.store.CreateGateToken(r.Context(), req.Name, req.Token)
 	if err != nil {
 		respondError(w, r, http.StatusInternalServerError, "failed to create gate token", adminRedirect("/admin/gate-tokens", "Failed to create token"))
 		return

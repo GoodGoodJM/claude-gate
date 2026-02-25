@@ -29,7 +29,7 @@ func setupProxy(t *testing.T, upstream *httptest.Server) (*ProxyHandler, <-chan 
 	}
 
 	// Create a gate token.
-	_, err = s.CreateGateToken(ctx, "test-gate")
+	_, err = s.CreateGateToken(ctx, "test-gate", "")
 	if err != nil {
 		t.Fatalf("create gate token: %v", err)
 	}
@@ -349,7 +349,7 @@ func TestUsageWriter_BatchFlush(t *testing.T) {
 
 	// Create tokens for usage logging.
 	rt, _ := s.CreateRealToken(ctx, "real", "sk-test", "")
-	gt, _ := s.CreateGateToken(ctx, "gate")
+	gt, _ := s.CreateGateToken(ctx, "gate", "")
 
 	ch := make(chan usageEntry, 10)
 	writer := NewUsageWriter(ch, s, logger)

@@ -30,9 +30,12 @@ func generateGateToken() string {
 	return "gate-" + strings.ToLower(encoded)
 }
 
-func (s *Store) CreateGateToken(ctx context.Context, name string) (*GateToken, error) {
+func (s *Store) CreateGateToken(ctx context.Context, name, customToken string) (*GateToken, error) {
 	id := newID()
-	token := generateGateToken()
+	token := customToken
+	if token == "" {
+		token = generateGateToken()
+	}
 	now := time.Now().UTC()
 
 	_, err := s.writeDB.ExecContext(ctx,

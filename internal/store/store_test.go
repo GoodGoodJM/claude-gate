@@ -350,7 +350,7 @@ func TestCreateGateToken(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
 
-	gt, err := s.CreateGateToken(ctx, "my-gate")
+	gt, err := s.CreateGateToken(ctx, "my-gate", "")
 	if err != nil {
 		t.Fatalf("CreateGateToken: %v", err)
 	}
@@ -374,7 +374,7 @@ func TestGateTokenFormat(t *testing.T) {
 
 	// Create multiple tokens and verify they all start with "gate-"
 	for i := range 10 {
-		gt, err := s.CreateGateToken(ctx, "fmt-test")
+		gt, err := s.CreateGateToken(ctx, "fmt-test", "")
 		if err != nil {
 			t.Fatalf("CreateGateToken #%d: %v", i, err)
 		}
@@ -392,7 +392,7 @@ func TestGetGateToken(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
 
-	created, _ := s.CreateGateToken(ctx, "g")
+	created, _ := s.CreateGateToken(ctx, "g", "")
 	got, err := s.GetGateToken(ctx, created.ID)
 	if err != nil {
 		t.Fatalf("GetGateToken: %v", err)
@@ -419,7 +419,7 @@ func TestGetGateTokenByToken(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
 
-	created, _ := s.CreateGateToken(ctx, "by-tok")
+	created, _ := s.CreateGateToken(ctx, "by-tok", "")
 	got, err := s.GetGateTokenByToken(ctx, created.Token)
 	if err != nil {
 		t.Fatalf("GetGateTokenByToken: %v", err)
@@ -443,8 +443,8 @@ func TestListGateTokens(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
 
-	_, _ = s.CreateGateToken(ctx, "g1")
-	_, _ = s.CreateGateToken(ctx, "g2")
+	_, _ = s.CreateGateToken(ctx, "g1", "")
+	_, _ = s.CreateGateToken(ctx, "g2", "")
 
 	tokens, err := s.ListGateTokens(ctx)
 	if err != nil {
@@ -459,7 +459,7 @@ func TestUpdateGateToken(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
 
-	gt, _ := s.CreateGateToken(ctx, "old-gate")
+	gt, _ := s.CreateGateToken(ctx, "old-gate", "")
 	if err := s.UpdateGateToken(ctx, gt.ID, "new-gate"); err != nil {
 		t.Fatalf("UpdateGateToken: %v", err)
 	}
@@ -488,7 +488,7 @@ func TestSetGateTokenActive(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
 
-	gt, _ := s.CreateGateToken(ctx, "toggle")
+	gt, _ := s.CreateGateToken(ctx, "toggle", "")
 
 	// Deactivate
 	if err := s.SetGateTokenActive(ctx, gt.ID, false); err != nil {
@@ -523,7 +523,7 @@ func TestDeleteGateToken(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
 
-	gt, _ := s.CreateGateToken(ctx, "del-gate")
+	gt, _ := s.CreateGateToken(ctx, "del-gate", "")
 	if err := s.DeleteGateToken(ctx, gt.ID); err != nil {
 		t.Fatalf("DeleteGateToken: %v", err)
 	}
@@ -548,7 +548,7 @@ func TestUpdateGateTokenUsage(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
 
-	gt, _ := s.CreateGateToken(ctx, "usage-gate")
+	gt, _ := s.CreateGateToken(ctx, "usage-gate", "")
 
 	if err := s.UpdateGateTokenUsage(ctx, gt.ID, 50, 25); err != nil {
 		t.Fatalf("UpdateGateTokenUsage: %v", err)
@@ -577,7 +577,7 @@ func createTestTokens(t *testing.T, s *Store) (*RealToken, *GateToken) {
 	if err != nil {
 		t.Fatalf("CreateRealToken: %v", err)
 	}
-	gt, err := s.CreateGateToken(ctx, "gt")
+	gt, err := s.CreateGateToken(ctx, "gt", "")
 	if err != nil {
 		t.Fatalf("CreateGateToken: %v", err)
 	}
@@ -717,7 +717,7 @@ func TestGetUsageStatsByRealToken(t *testing.T) {
 
 	rt1, _ := s.CreateRealToken(ctx, "rt1", "a1", "r1")
 	rt2, _ := s.CreateRealToken(ctx, "rt2", "a2", "r2")
-	gt, _ := s.CreateGateToken(ctx, "gt")
+	gt, _ := s.CreateGateToken(ctx, "gt", "")
 
 	since := time.Now().UTC().Add(-1 * time.Hour)
 
@@ -745,8 +745,8 @@ func TestGetUsageStatsByGateToken(t *testing.T) {
 	ctx := context.Background()
 
 	rt, _ := s.CreateRealToken(ctx, "rt", "a", "r")
-	gt1, _ := s.CreateGateToken(ctx, "gt1")
-	gt2, _ := s.CreateGateToken(ctx, "gt2")
+	gt1, _ := s.CreateGateToken(ctx, "gt1", "")
+	gt2, _ := s.CreateGateToken(ctx, "gt2", "")
 
 	since := time.Now().UTC().Add(-1 * time.Hour)
 
@@ -830,7 +830,7 @@ func TestUpsertStickySessionUpdate(t *testing.T) {
 	ctx := context.Background()
 	rt1, _ := s.CreateRealToken(ctx, "rt1", "a1", "r1")
 	rt2, _ := s.CreateRealToken(ctx, "rt2", "a2", "r2")
-	gt, _ := s.CreateGateToken(ctx, "gt")
+	gt, _ := s.CreateGateToken(ctx, "gt", "")
 
 	expires := time.Now().UTC().Add(1 * time.Hour)
 	_ = s.UpsertStickySession(ctx, gt.ID, rt1.ID, expires)
@@ -898,9 +898,9 @@ func TestDeleteExpiredStickySessions(t *testing.T) {
 	ctx := context.Background()
 	rt, _ := createTestTokens(t, s)
 
-	gt1, _ := s.CreateGateToken(ctx, "g1")
-	gt2, _ := s.CreateGateToken(ctx, "g2")
-	gt3, _ := s.CreateGateToken(ctx, "g3")
+	gt1, _ := s.CreateGateToken(ctx, "g1", "")
+	gt2, _ := s.CreateGateToken(ctx, "g2", "")
+	gt3, _ := s.CreateGateToken(ctx, "g3", "")
 
 	past := time.Now().UTC().Add(-1 * time.Hour)
 	future := time.Now().UTC().Add(1 * time.Hour)

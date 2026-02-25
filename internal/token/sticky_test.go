@@ -14,7 +14,7 @@ func TestStickyManager_BindAndResolve(t *testing.T) {
 	ctx := context.Background()
 	sm := NewStickyManager(s, logging.Discard())
 
-	gt, _ := s.CreateGateToken(ctx, "gate1")
+	gt, _ := s.CreateGateToken(ctx, "gate1", "")
 	rt, _ := s.CreateRealToken(ctx, "real1", "acc1", "ref1")
 
 	err := sm.Bind(ctx, gt.ID, rt.ID, 10*time.Minute)
@@ -36,7 +36,7 @@ func TestStickyManager_Expiry(t *testing.T) {
 	ctx := context.Background()
 	sm := NewStickyManager(s, logging.Discard())
 
-	gt, _ := s.CreateGateToken(ctx, "gate1")
+	gt, _ := s.CreateGateToken(ctx, "gate1", "")
 	rt, _ := s.CreateRealToken(ctx, "real1", "acc1", "ref1")
 
 	// Bind with a very short TTL.
@@ -67,7 +67,7 @@ func TestStickyManager_DBFallback(t *testing.T) {
 	ctx := context.Background()
 	sm := NewStickyManager(s, logging.Discard())
 
-	gt, _ := s.CreateGateToken(ctx, "gate1")
+	gt, _ := s.CreateGateToken(ctx, "gate1", "")
 	rt, _ := s.CreateRealToken(ctx, "real1", "acc1", "ref1")
 
 	// Write to DB directly (use UTC to match SQLite datetime('now')).
@@ -97,7 +97,7 @@ func TestStickyManager_Rebind(t *testing.T) {
 	ctx := context.Background()
 	sm := NewStickyManager(s, logging.Discard())
 
-	gt, _ := s.CreateGateToken(ctx, "gate1")
+	gt, _ := s.CreateGateToken(ctx, "gate1", "")
 	rt1, _ := s.CreateRealToken(ctx, "real1", "acc1", "ref1")
 	rt2, _ := s.CreateRealToken(ctx, "real2", "acc2", "ref2")
 
@@ -139,7 +139,7 @@ func TestStickyManager_ExpiredNotResolved(t *testing.T) {
 	ctx := context.Background()
 	sm := NewStickyManager(s, logging.Discard())
 
-	gt, _ := s.CreateGateToken(ctx, "gate1")
+	gt, _ := s.CreateGateToken(ctx, "gate1", "")
 	rt, _ := s.CreateRealToken(ctx, "real1", "acc1", "ref1")
 
 	// Bind with a very short TTL and wait for it to expire.
