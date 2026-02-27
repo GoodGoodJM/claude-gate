@@ -132,6 +132,21 @@ Common lint issues:
 - `testutil.NewMockUpstream()`: SSE mock server
 - `testutil.NewMockUpstreamJSON()`: JSON mock server
 
+## Deployment
+
+### Docker + Litestream
+
+The Dockerfile includes Litestream for optional SQLite-to-S3 replication. Controlled by the `LITESTREAM_S3_BUCKET` environment variable:
+- **Set**: `entrypoint.sh` restores DB from S3 on startup, then runs the app with continuous replication
+- **Not set**: App runs directly, no Litestream involved
+
+Key files: `Dockerfile`, `entrypoint.sh`, `litestream.yml`
+
+### CI/CD (GitHub Actions)
+
+- `ci.yml`: lint → test → build. Runs on push/PR to `main`
+- `release.yml`: Auto-tags via `mathieudutour/github-tag-action` (Conventional Commits) → Docker build → GHCR push. Runs on push to `main`. Only `feat:` (minor) and `fix:` (patch) trigger a release; other prefixes are skipped (`default_bump: false`)
+
 ## Environment Variables
 
 | Variable | Default | Description |
@@ -143,6 +158,8 @@ Common lint issues:
 | `CLAUDE_GATE_STICKY_TTL` | `10m` | Sticky session TTL |
 | `CLAUDE_GATE_MAX_FAILURES` | `5` | Auto-deactivation failure threshold |
 | `CLAUDE_GATE_LOG_LEVEL` | `info` | Log level (debug, info, warn, error) |
+| `LITESTREAM_S3_BUCKET` | *(optional)* | S3 bucket for Litestream replication. Activates Litestream when set |
+| `AWS_REGION` | *(optional)* | AWS region for Litestream S3 replication |
 
 ## Dependency Policy
 

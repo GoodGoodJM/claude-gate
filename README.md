@@ -84,6 +84,8 @@ All configuration via environment variables:
 | `CLAUDE_GATE_UPSTREAM_URL` | `https://api.anthropic.com` | Claude API upstream |
 | `CLAUDE_GATE_STICKY_TTL` | `10m` | Sticky session duration |
 | `CLAUDE_GATE_MAX_FAILURES` | `5` | Failures before auto-deactivating a token |
+| `LITESTREAM_S3_BUCKET` | *(optional)* | S3 bucket for Litestream replication |
+| `AWS_REGION` | *(optional)* | AWS region for Litestream S3 |
 
 ## Admin API
 
@@ -123,6 +125,33 @@ All endpoints require `Authorization: Bearer <CLAUDE_GATE_ADMIN_SECRET>`.
 docker build -t claude-gate .
 docker run -e CLAUDE_GATE_ADMIN_SECRET=secret -p 8080:8080 claude-gate
 ```
+
+### Litestream (SQLite S3 Replication)
+
+For container deployments (ECS, etc.) where local storage is ephemeral, Litestream support is built into the Docker image. Set `LITESTREAM_S3_BUCKET` to activate:
+
+```bash
+docker run \
+  -e CLAUDE_GATE_ADMIN_SECRET=secret \
+  -e LITESTREAM_S3_BUCKET=my-bucket \
+  -e AWS_REGION=ap-northeast-2 \
+  -p 8080:8080 claude-gate
+```
+
+When enabled, the entrypoint will:
+1. Restore the SQLite database from S3 on startup (if a backup exists)
+2. Run the app while continuously replicating WAL changes to S3
+
+When `LITESTREAM_S3_BUCKET` is not set, the app runs directly without Litestream.
+
+## CI/CD
+
+Automated via GitHub Actions:
+
+- **CI** (`ci.yml`) — Runs on every push/PR to `main`: lint, test, build
+- **Release** (`release.yml`) — Runs on push to `main`: auto-tags based on [Conventional Commits](https://www.conventionalcommits.org/) (`feat:` → minor, `fix:` → patch), then builds and pushes Docker image to GHCR
+
+Docker images are available at `ghcr.io/goodgoodjm/claude-gate`.
 
 ## Development
 
