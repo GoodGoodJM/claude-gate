@@ -1,5 +1,5 @@
 dbs:
-  - path: ${CLAUDE_GATE_DB_PATH}
+  - path: /data/claude-gate.db
     replicas:
       - url: s3://${LITESTREAM_S3_BUCKET}/claude-gate.db
         region: ${AWS_REGION}
