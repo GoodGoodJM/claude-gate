@@ -168,11 +168,23 @@ func (h *Handler) realTokensPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	epoch := time.Unix(0, 0)
+	cacheStats := make(map[string]*store.UsageStats, len(tokens))
+	for _, t := range tokens {
+		stats, err := h.store.GetUsageStatsByRealToken(t.ID, epoch)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		cacheStats[t.ID] = stats
+	}
+
 	h.renderLayout(w, "real_tokens.html", map[string]any{
-		"Title":  "Real Tokens",
-		"Nav":    "real-tokens",
-		"Tokens": tokens,
-		"Flash":  r.URL.Query().Get("flash"),
+		"Title":      "Real Tokens",
+		"Nav":        "real-tokens",
+		"Tokens":     tokens,
+		"CacheStats": cacheStats,
+		"Flash":      r.URL.Query().Get("flash"),
 	})
 }
 
@@ -227,12 +239,24 @@ func (h *Handler) gateTokensPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	epoch := time.Unix(0, 0)
+	cacheStats := make(map[string]*store.UsageStats, len(tokens))
+	for _, t := range tokens {
+		stats, err := h.store.GetUsageStatsByGateToken(t.ID, epoch)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		cacheStats[t.ID] = stats
+	}
+
 	h.renderLayout(w, "gate_tokens.html", map[string]any{
-		"Title":    "Gate Tokens",
-		"Nav":      "gate-tokens",
-		"Tokens":   tokens,
-		"Flash":    r.URL.Query().Get("flash"),
-		"NewToken": r.URL.Query().Get("new_token"),
+		"Title":      "Gate Tokens",
+		"Nav":        "gate-tokens",
+		"Tokens":     tokens,
+		"CacheStats": cacheStats,
+		"Flash":      r.URL.Query().Get("flash"),
+		"NewToken":   r.URL.Query().Get("new_token"),
 	})
 }
 

@@ -29,5 +29,13 @@
 		<div class="label">Output Tokens (24h)</div>
 		<div class="value">{{.Usage24h.TotalOutputTokens}}</div>
 	</div>
+	<div class="card">
+		<div class="label">Cache Creation Tokens (24h)</div>
+		<div class="value">{{.Usage24h.CacheCreationInputTokens}}</div>
+	</div>
+	<div class="card">
+		<div class="label">Cache Read Tokens (24h)</div>
+		<div class="value">{{.Usage24h.CacheReadInputTokens}}</div>
+	</div>
 </div>
 {{end}}
