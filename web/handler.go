@@ -209,7 +209,7 @@ func (h *Handler) realTokensPage(w http.ResponseWriter, r *http.Request) {
 	epoch := time.Unix(0, 0)
 	cacheStats := make(map[string]*store.UsageStats, len(tokens))
 	for _, t := range tokens {
-		stats, err := h.store.GetUsageStatsByRealToken(t.ID, epoch)
+		stats, err := h.store.GetUsageStatsByRealToken(r.Context(), t.ID, epoch)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -236,7 +236,7 @@ func (h *Handler) gateTokensPage(w http.ResponseWriter, r *http.Request) {
 	epoch := time.Unix(0, 0)
 	cacheStats := make(map[string]*store.UsageStats, len(tokens))
 	for _, t := range tokens {
-		stats, err := h.store.GetUsageStatsByGateToken(t.ID, epoch)
+		stats, err := h.store.GetUsageStatsByGateToken(r.Context(), t.ID, epoch)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
