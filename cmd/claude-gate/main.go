@@ -11,10 +11,17 @@ import (
 
 	"github.com/ggmolly/claude-gate/internal/admin"
 	"github.com/ggmolly/claude-gate/internal/config"
+	"github.com/ggmolly/claude-gate/internal/logging"
 	"github.com/ggmolly/claude-gate/internal/proxy"
 	"github.com/ggmolly/claude-gate/internal/store"
 	"github.com/ggmolly/claude-gate/internal/token"
 	"github.com/ggmolly/claude-gate/web"
+)
+
+const (
+	serverReadTimeout     = 30 * time.Second
+	serverIdleTimeout     = 120 * time.Second
+	serverShutdownTimeout = 10 * time.Second
 )
 
 func main() {
@@ -23,6 +30,9 @@ func main() {
 		log.Fatalf("load config: %v", err)
 	}
 
+	logger := logging.SetupLogger(cfg.LogLevel)
+	cfg.Validate(logger)
+
 	db, err := store.New(cfg.DBPath)
 	if err != nil {
 		log.Fatalf("open database: %v", err)
@@ -30,7 +40,7 @@ func main() {
 	defer db.Close()
 
 	// Token manager
-	tokenMgr := token.NewManager(db, cfg.MaxFailures, cfg.StickyTTL)
+	tokenMgr := token.NewManager(db, cfg.MaxFailures, cfg.StickyTTL, logger)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -41,7 +51,7 @@ func main() {
 	defer tokenMgr.Stop()
 
 	// Proxy handler + usage writer
-	proxyHandler, cancelUsageWriter, err := proxy.Setup(ctx, db, tokenMgr, cfg.UpstreamURL)
+	proxyHandler, cancelUsageWriter, err := proxy.Setup(ctx, db, tokenMgr, cfg.UpstreamURL, logger)
 	if err != nil {
 		log.Fatalf("setup proxy: %v", err)
 	}
@@ -49,53 +59,45 @@ func main() {
 
 	mux := http.NewServeMux()
 
-	// Admin API (each route has auth middleware applied)
-	adminHandler := admin.NewAdminHandler(db, func() {
-		if err := tokenMgr.RefreshPool(); err != nil {
-			log.Printf("failed to refresh token pool: %v", err)
-		}
-	})
-	adminHandler.Register(mux, cfg.AdminSecret)
-
-	// Web UI
-	webHandler, err := web.NewHandler(db, cfg.AdminSecret, func() {
-		if err := tokenMgr.RefreshPool(); err != nil {
-			log.Printf("failed to refresh token pool: %v", err)
-		}
-	})
+	// Web UI (create first so session validator is available for admin API)
+	webHandler, err := web.NewHandler(db, cfg.AdminSecret, logger)
 	if err != nil {
 		log.Fatalf("init web handler: %v", err)
 	}
 	webHandler.RegisterRoutes(mux)
+
+	// Admin API (each route has auth middleware applied, session auth for Web UI)
+	adminHandler := admin.NewAdminHandler(db, func() {
+		tokenMgr.RefreshPool()
+	}, logger)
+	adminHandler.Register(mux, cfg.AdminSecret, webHandler.ValidateSession)
 
 	// Proxy catch-all (must be last)
 	mux.Handle("/", proxyHandler)
 
 	srv := &http.Server{
 		Addr:         cfg.Addr,
-		Handler:      mux,
-		ReadTimeout:  30 * time.Second,
+		Handler:      web.WrapMux(mux),
+		ReadTimeout:  serverReadTimeout,
 		WriteTimeout: 0, // no timeout for SSE streaming
-		IdleTimeout:  120 * time.Second,
+		IdleTimeout:  serverIdleTimeout,
 	}
 
 	go func() {
-		log.Printf("claude-gate listening on %s", cfg.Addr)
-		log.Printf("  upstream: %s", cfg.UpstreamURL)
-		log.Printf("  admin UI: http://%s/admin/", cfg.Addr)
+		logger.Info("claude-gate starting", "addr", cfg.Addr, "upstream", cfg.UpstreamURL)
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("server error: %v", err)
 		}
 	}()
 
 	<-ctx.Done()
-	log.Println("shutting down...")
+	logger.Info("shutting down...")
 
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), serverShutdownTimeout)
 	defer cancel()
 
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		log.Fatalf("shutdown error: %v", err)
 	}
-	log.Println("server stopped")
+	logger.Info("server stopped")
 }

@@ -1,8 +1,10 @@
 package store
 
 import (
+	"context"
 	"database/sql"
 	"embed"
+	"errors"
 	"fmt"
 	"io/fs"
 	"sort"
@@ -52,17 +54,7 @@ func New(dbPath string) (*Store, error) {
 
 // Close closes both database connections.
 func (s *Store) Close() error {
-	var errs []error
-	if err := s.writeDB.Close(); err != nil {
-		errs = append(errs, err)
-	}
-	if err := s.readDB.Close(); err != nil {
-		errs = append(errs, err)
-	}
-	if len(errs) > 0 {
-		return fmt.Errorf("close store: %v", errs)
-	}
-	return nil
+	return errors.Join(s.writeDB.Close(), s.readDB.Close())
 }
 
 // WriteDB returns the write-only database connection.
@@ -73,6 +65,49 @@ func (s *Store) WriteDB() *sql.DB {
 // ReadDB returns the read-only database connection.
 func (s *Store) ReadDB() *sql.DB {
 	return s.readDB
+}
+
+func boolToInt(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
+}
+
+func (s *Store) withTx(ctx context.Context, fn func(tx *sql.Tx) error) error {
+	tx, err := s.writeDB.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	if err := fn(tx); err != nil {
+		_ = tx.Rollback()
+		return err
+	}
+	return tx.Commit()
+}
+
+// cascadeDelete deletes related rows from sticky_sessions and usage_logs,
+// then deletes the row from the target table. The column is the foreign key
+// column name used in the WHERE clause (e.g. "real_token_id" or "gate_token_id").
+func cascadeDelete(ctx context.Context, tx *sql.Tx, column, id, table string) error {
+	if _, err := tx.ExecContext(ctx, `DELETE FROM sticky_sessions WHERE `+column+` = ?`, id); err != nil {
+		return fmt.Errorf("delete %s: delete sticky sessions: %w", table, err)
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM usage_logs WHERE `+column+` = ?`, id); err != nil {
+		return fmt.Errorf("delete %s: delete usage logs: %w", table, err)
+	}
+	res, err := tx.ExecContext(ctx, `DELETE FROM `+table+` WHERE id = ?`, id)
+	if err != nil {
+		return fmt.Errorf("delete %s: %w", table, err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("delete %s: rows affected: %w", table, err)
+	}
+	if n == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
 }
 
 func (s *Store) migrate() error {

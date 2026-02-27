@@ -2,12 +2,14 @@ package admin
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
 	"testing"
 
+	"github.com/ggmolly/claude-gate/internal/logging"
 	"github.com/ggmolly/claude-gate/internal/store"
 )
 
@@ -27,9 +29,9 @@ func newTestStore(t *testing.T) *store.Store {
 func setupTestHandler(t *testing.T) (*AdminHandler, *http.ServeMux, *store.Store) {
 	t.Helper()
 	s := newTestStore(t)
-	h := NewAdminHandler(s, nil)
+	h := NewAdminHandler(s, nil, logging.Discard())
 	mux := http.NewServeMux()
-	h.Register(mux, testAdminSecret)
+	h.Register(mux, testAdminSecret, nil)
 	return h, mux, s
 }
 
@@ -62,7 +64,7 @@ func parseResponse(t *testing.T, rr *httptest.ResponseRecorder) map[string]json.
 // --- Middleware tests ---
 
 func TestAdminAuth_ValidToken(t *testing.T) {
-	handler := AdminAuth(testAdminSecret)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := AdminAuth(testAdminSecret, nil)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
@@ -77,7 +79,7 @@ func TestAdminAuth_ValidToken(t *testing.T) {
 }
 
 func TestAdminAuth_MissingToken(t *testing.T) {
-	handler := AdminAuth(testAdminSecret)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := AdminAuth(testAdminSecret, nil)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
@@ -91,7 +93,7 @@ func TestAdminAuth_MissingToken(t *testing.T) {
 }
 
 func TestAdminAuth_InvalidToken(t *testing.T) {
-	handler := AdminAuth(testAdminSecret)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := AdminAuth(testAdminSecret, nil)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
@@ -164,7 +166,8 @@ func TestCreateRealToken_MissingFields(t *testing.T) {
 
 func TestListRealTokens_OmitsSecrets(t *testing.T) {
 	_, mux, s := setupTestHandler(t)
-	_, _ = s.CreateRealToken("test", "secret-access", "secret-refresh")
+	ctx := context.Background()
+	_, _ = s.CreateRealToken(ctx, "test", "secret-access", "secret-refresh")
 
 	req := authedRequest("GET", "/admin/api/real-tokens", nil)
 	rr := doRequest(mux, req)
@@ -184,7 +187,8 @@ func TestListRealTokens_OmitsSecrets(t *testing.T) {
 
 func TestUpdateRealToken(t *testing.T) {
 	_, mux, s := setupTestHandler(t)
-	tok, _ := s.CreateRealToken("old-name", "a", "r")
+	ctx := context.Background()
+	tok, _ := s.CreateRealToken(ctx, "old-name", "a", "r")
 
 	body := updateTokenRequest{Name: "new-name"}
 	req := authedRequest("PUT", "/admin/api/real-tokens/"+tok.ID, body)
@@ -208,7 +212,8 @@ func TestUpdateRealToken_NotFound(t *testing.T) {
 
 func TestDeleteRealToken(t *testing.T) {
 	_, mux, s := setupTestHandler(t)
-	tok, _ := s.CreateRealToken("to-delete", "a", "r")
+	ctx := context.Background()
+	tok, _ := s.CreateRealToken(ctx, "to-delete", "a", "r")
 
 	req := authedRequest("DELETE", "/admin/api/real-tokens/"+tok.ID, nil)
 	rr := doRequest(mux, req)
@@ -230,8 +235,9 @@ func TestDeleteRealToken_NotFound(t *testing.T) {
 
 func TestActivateRealToken(t *testing.T) {
 	_, mux, s := setupTestHandler(t)
-	tok, _ := s.CreateRealToken("tok", "a", "r")
-	_ = s.SetRealTokenActive(tok.ID, false)
+	ctx := context.Background()
+	tok, _ := s.CreateRealToken(ctx, "tok", "a", "r")
+	_ = s.SetRealTokenActive(ctx, tok.ID, false)
 
 	req := authedRequest("POST", "/admin/api/real-tokens/"+tok.ID+"/activate", nil)
 	rr := doRequest(mux, req)
@@ -243,7 +249,8 @@ func TestActivateRealToken(t *testing.T) {
 
 func TestDeactivateRealToken(t *testing.T) {
 	_, mux, s := setupTestHandler(t)
-	tok, _ := s.CreateRealToken("tok", "a", "r")
+	ctx := context.Background()
+	tok, _ := s.CreateRealToken(ctx, "tok", "a", "r")
 
 	req := authedRequest("POST", "/admin/api/real-tokens/"+tok.ID+"/deactivate", nil)
 	rr := doRequest(mux, req)
@@ -308,7 +315,8 @@ func TestCreateGateToken_MissingName(t *testing.T) {
 
 func TestUpdateGateToken(t *testing.T) {
 	_, mux, s := setupTestHandler(t)
-	tok, _ := s.CreateGateToken("old-name")
+	ctx := context.Background()
+	tok, _ := s.CreateGateToken(ctx, "old-name", "")
 
 	body := updateTokenRequest{Name: "new-name"}
 	req := authedRequest("PUT", "/admin/api/gate-tokens/"+tok.ID, body)
@@ -332,7 +340,8 @@ func TestUpdateGateToken_NotFound(t *testing.T) {
 
 func TestDeleteGateToken(t *testing.T) {
 	_, mux, s := setupTestHandler(t)
-	tok, _ := s.CreateGateToken("to-delete")
+	ctx := context.Background()
+	tok, _ := s.CreateGateToken(ctx, "to-delete", "")
 
 	req := authedRequest("DELETE", "/admin/api/gate-tokens/"+tok.ID, nil)
 	rr := doRequest(mux, req)
@@ -354,8 +363,9 @@ func TestDeleteGateToken_NotFound(t *testing.T) {
 
 func TestActivateGateToken(t *testing.T) {
 	_, mux, s := setupTestHandler(t)
-	tok, _ := s.CreateGateToken("tok")
-	_ = s.SetGateTokenActive(tok.ID, false)
+	ctx := context.Background()
+	tok, _ := s.CreateGateToken(ctx, "tok", "")
+	_ = s.SetGateTokenActive(ctx, tok.ID, false)
 
 	req := authedRequest("POST", "/admin/api/gate-tokens/"+tok.ID+"/activate", nil)
 	rr := doRequest(mux, req)
@@ -367,7 +377,8 @@ func TestActivateGateToken(t *testing.T) {
 
 func TestDeactivateGateToken(t *testing.T) {
 	_, mux, s := setupTestHandler(t)
-	tok, _ := s.CreateGateToken("tok")
+	ctx := context.Background()
+	tok, _ := s.CreateGateToken(ctx, "tok", "")
 
 	req := authedRequest("POST", "/admin/api/gate-tokens/"+tok.ID+"/deactivate", nil)
 	rr := doRequest(mux, req)
@@ -381,16 +392,17 @@ func TestDeactivateGateToken(t *testing.T) {
 
 func TestGetUsage(t *testing.T) {
 	_, mux, s := setupTestHandler(t)
-	rt, _ := s.CreateRealToken("rt", "a", "r")
-	gt, _ := s.CreateGateToken("gt")
-	_ = s.InsertUsageLog(&store.UsageLog{
-		GateTokenID: gt.ID,
-		RealTokenID: rt.ID,
-		Model:       "claude-sonnet-4-20250514",
-		InputTokens: 100,
+	ctx := context.Background()
+	rt, _ := s.CreateRealToken(ctx, "rt", "a", "r")
+	gt, _ := s.CreateGateToken(ctx, "gt", "")
+	_ = s.InsertUsageLog(ctx, &store.UsageLog{
+		GateTokenID:  gt.ID,
+		RealTokenID:  rt.ID,
+		Model:        "claude-sonnet-4-20250514",
+		InputTokens:  100,
 		OutputTokens: 50,
-		RequestPath: "/v1/messages",
-		StatusCode:  200,
+		RequestPath:  "/v1/messages",
+		StatusCode:   200,
 	})
 
 	req := authedRequest("GET", "/admin/api/usage", nil)
@@ -414,9 +426,10 @@ func TestGetUsage(t *testing.T) {
 
 func TestGetUsageByRealToken(t *testing.T) {
 	_, mux, s := setupTestHandler(t)
-	rt, _ := s.CreateRealToken("rt", "a", "r")
-	gt, _ := s.CreateGateToken("gt")
-	_ = s.InsertUsageLog(&store.UsageLog{
+	ctx := context.Background()
+	rt, _ := s.CreateRealToken(ctx, "rt", "a", "r")
+	gt, _ := s.CreateGateToken(ctx, "gt", "")
+	_ = s.InsertUsageLog(ctx, &store.UsageLog{
 		GateTokenID:  gt.ID,
 		RealTokenID:  rt.ID,
 		Model:        "claude-sonnet-4-20250514",
@@ -444,9 +457,10 @@ func TestGetUsageByRealToken(t *testing.T) {
 
 func TestGetUsageByGateToken(t *testing.T) {
 	_, mux, s := setupTestHandler(t)
-	rt, _ := s.CreateRealToken("rt", "a", "r")
-	gt, _ := s.CreateGateToken("gt")
-	_ = s.InsertUsageLog(&store.UsageLog{
+	ctx := context.Background()
+	rt, _ := s.CreateRealToken(ctx, "rt", "a", "r")
+	gt, _ := s.CreateGateToken(ctx, "gt", "")
+	_ = s.InsertUsageLog(ctx, &store.UsageLog{
 		GateTokenID:  gt.ID,
 		RealTokenID:  rt.ID,
 		Model:        "claude-sonnet-4-20250514",

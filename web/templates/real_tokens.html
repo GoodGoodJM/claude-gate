@@ -6,7 +6,7 @@
 </div>
 
 <div id="add-form" style="display:none; margin-bottom:1rem;">
-	<form method="POST" action="/admin/real-tokens/create" class="card">
+	<form method="POST" action="/admin/api/real-tokens" class="card">
 		<div class="form-group">
 			<label for="name">Name</label>
 			<input type="text" id="name" name="name" placeholder="e.g. personal-1" required>
@@ -31,6 +31,7 @@
 <table>
 	<thead>
 		<tr>
+			<th>ID</th>
 			<th>Name</th>
 			<th>Status</th>
 			<th>Failures</th>
@@ -45,6 +46,7 @@
 	<tbody>
 		{{range .Tokens}}
 		<tr>
+			<td class="mono text-muted">{{slice .ID 0 8}}</td>
 			<td>{{.Name}}</td>
 			<td>
 				{{if .IsActive}}
@@ -61,21 +63,19 @@
 			<td class="text-muted">{{if .LastUsedAt}}{{.LastUsedAt.Format "2006-01-02 15:04"}}{{else}}-{{end}}</td>
 			<td>
 				{{if .IsActive}}
-				<form class="inline" method="POST" action="/admin/real-tokens/{{.ID}}/deactivate">
+				<form class="inline" method="POST" action="/admin/api/real-tokens/{{.ID}}/deactivate">
 					<button type="submit" class="btn btn-sm">Deactivate</button>
 				</form>
 				{{else}}
-				<form class="inline" method="POST" action="/admin/real-tokens/{{.ID}}/activate">
+				<form class="inline" method="POST" action="/admin/api/real-tokens/{{.ID}}/activate">
 					<button type="submit" class="btn btn-sm btn-primary">Activate</button>
 				</form>
 				{{end}}
-				<form class="inline" method="POST" action="/admin/real-tokens/{{.ID}}/delete" onsubmit="return confirm('Delete this token?')">
-					<button type="submit" class="btn btn-sm btn-danger">Delete</button>
-				</form>
+				<button class="btn btn-sm btn-danger" hx-delete="/admin/api/real-tokens/{{.ID}}" hx-confirm="Delete this token?">Delete</button>
 			</td>
 		</tr>
 		{{else}}
-		<tr><td colspan="9" class="text-muted">No real tokens configured.</td></tr>
+		<tr><td colspan="10" class="text-muted">No real tokens configured.</td></tr>
 		{{end}}
 	</tbody>
 </table>

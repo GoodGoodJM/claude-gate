@@ -2,10 +2,14 @@ package token
 
 import (
 	"context"
+	"log/slog"
+	"sync"
 	"time"
 
 	"github.com/ggmolly/claude-gate/internal/store"
 )
+
+const poolRefreshDebounce = 100 * time.Millisecond
 
 // Manager combines a TokenPool with a StickyManager to resolve real tokens
 // for incoming gate-token requests.
@@ -13,17 +17,23 @@ type Manager struct {
 	pool   *TokenPool
 	sticky *StickyManager
 	store  *store.Store
+	logger *slog.Logger
 
 	stickyTTL   time.Duration
 	maxFailures int
+
+	ctx          context.Context
+	refreshMu    sync.Mutex
+	refreshTimer *time.Timer
 }
 
 // NewManager creates a Manager. Call Start to begin background goroutines.
-func NewManager(s *store.Store, maxFailures int, stickyTTL time.Duration) *Manager {
+func NewManager(s *store.Store, maxFailures int, stickyTTL time.Duration, logger *slog.Logger) *Manager {
 	return &Manager{
-		pool:        NewTokenPool(s, maxFailures),
-		sticky:      NewStickyManager(s),
+		pool:        NewTokenPool(s, maxFailures, logger),
+		sticky:      NewStickyManager(s, logger),
 		store:       s,
+		logger:      logger,
 		stickyTTL:   stickyTTL,
 		maxFailures: maxFailures,
 	}
@@ -31,7 +41,8 @@ func NewManager(s *store.Store, maxFailures int, stickyTTL time.Duration) *Manag
 
 // Start initialises the token pool and starts the sticky cleanup goroutine.
 func (m *Manager) Start(ctx context.Context) error {
-	if err := m.pool.Refresh(); err != nil {
+	m.ctx = ctx
+	if err := m.pool.Refresh(ctx); err != nil {
 		return err
 	}
 	m.sticky.Start(ctx)
@@ -43,19 +54,31 @@ func (m *Manager) Stop() {
 	m.sticky.Stop()
 }
 
-// RefreshPool reloads the token pool from the database. Call this after
-// creating, updating, or deleting real tokens.
-func (m *Manager) RefreshPool() error {
-	return m.pool.Refresh()
+// RefreshPool schedules a debounced pool refresh. Multiple calls within 100ms
+// are coalesced into a single refresh.
+func (m *Manager) RefreshPool() {
+	m.refreshMu.Lock()
+	defer m.refreshMu.Unlock()
+	if m.refreshTimer != nil {
+		m.refreshTimer.Stop()
+	}
+	m.refreshTimer = time.AfterFunc(poolRefreshDebounce, func() {
+		if err := m.pool.Refresh(m.ctx); err != nil {
+			m.logger.Error("failed to refresh token pool", "error", err)
+		} else {
+			m.logger.Debug("pool refreshed")
+		}
+	})
 }
 
 // ResolveToken returns the real token to use for the given gate token ID.
 // It checks the sticky session first; on miss it performs round-robin
 // selection and binds a new sticky session.
-func (m *Manager) ResolveToken(gateTokenID string) (*store.RealToken, error) {
+func (m *Manager) ResolveToken(ctx context.Context, gateTokenID string) (*store.RealToken, error) {
 	// Check sticky session.
-	if realTokenID, ok := m.sticky.Resolve(gateTokenID); ok {
+	if realTokenID, ok := m.sticky.Resolve(ctx, gateTokenID); ok {
 		if t := m.pool.GetByID(realTokenID); t != nil {
+			m.logger.Debug("token resolved", "gate", gateTokenID, "real", realTokenID, "real_name", t.Name, "method", "sticky")
 			return t, nil
 		}
 		// Sticky target is no longer active; fall through to round-robin.
@@ -68,33 +91,32 @@ func (m *Manager) ResolveToken(gateTokenID string) (*store.RealToken, error) {
 	}
 
 	// Bind sticky session.
-	_ = m.sticky.Bind(gateTokenID, t.ID, m.stickyTTL)
+	_ = m.sticky.Bind(ctx, gateTokenID, t.ID, m.stickyTTL)
+	m.logger.Debug("token resolved", "gate", gateTokenID, "real", t.ID, "real_name", t.Name, "method", "round-robin")
 	return t, nil
 }
 
 // RecordFailure increments the failure count for a real token in the database.
 // If the count reaches maxFailures, the token is deactivated. The pool is
 // refreshed afterward.
-func (m *Manager) RecordFailure(realTokenID string) error {
-	if err := m.store.IncrementRealTokenFailure(realTokenID); err != nil {
+func (m *Manager) RecordFailure(ctx context.Context, realTokenID string) error {
+	m.logger.Info("recording failure", "real_token", realTokenID)
+	if err := m.store.IncrementRealTokenFailure(ctx, realTokenID); err != nil {
 		return err
 	}
 
 	// Check if we should deactivate.
-	t, err := m.store.GetRealToken(realTokenID)
+	t, err := m.store.GetRealToken(ctx, realTokenID)
 	if err != nil {
 		return err
 	}
 	if t.FailureCount >= m.maxFailures {
-		if err := m.store.SetRealTokenActive(realTokenID, false); err != nil {
+		m.logger.Warn("deactivating token due to failures", "real_token", realTokenID, "failures", t.FailureCount)
+		if err := m.store.SetRealTokenActive(ctx, realTokenID, false); err != nil {
 			return err
 		}
 	}
 
-	return m.pool.Refresh()
-}
-
-// Pool returns the underlying TokenPool (useful for inspection in handlers).
-func (m *Manager) Pool() *TokenPool {
-	return m.pool
+	m.RefreshPool()
+	return nil
 }

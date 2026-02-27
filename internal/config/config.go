@@ -2,7 +2,10 @@ package config
 
 import (
 	"errors"
+	"log/slog"
+	"net/url"
 	"os"
+	"path/filepath"
 	"strconv"
 	"time"
 )
@@ -33,6 +36,32 @@ func Load() (*Config, error) {
 	}
 
 	return cfg, nil
+}
+
+// Validate checks configuration values and logs warnings for any issues.
+func (c *Config) Validate(logger *slog.Logger) {
+	if u, err := url.Parse(c.UpstreamURL); err != nil || u.Scheme == "" {
+		logger.Warn("invalid upstream URL", "url", c.UpstreamURL)
+	}
+
+	dir := filepath.Dir(c.DBPath)
+	if dir != "." && dir != "" {
+		if _, err := os.Stat(dir); os.IsNotExist(err) {
+			logger.Warn("database directory does not exist", "dir", dir)
+		}
+	}
+
+	if v := os.Getenv("CLAUDE_GATE_STICKY_TTL"); v != "" {
+		if _, err := time.ParseDuration(v); err != nil {
+			logger.Warn("failed to parse CLAUDE_GATE_STICKY_TTL, using default", "value", v, "default", c.StickyTTL)
+		}
+	}
+
+	if v := os.Getenv("CLAUDE_GATE_MAX_FAILURES"); v != "" {
+		if _, err := strconv.Atoi(v); err != nil {
+			logger.Warn("failed to parse CLAUDE_GATE_MAX_FAILURES, using default", "value", v, "default", c.MaxFailures)
+		}
+	}
 }
 
 func envOr(key, fallback string) string {

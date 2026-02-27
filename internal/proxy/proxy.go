@@ -3,12 +3,14 @@ package proxy
 import (
 	"encoding/json"
 	"io"
-	"log"
+	"log/slog"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
 	"strings"
+	"sync/atomic"
 
+	gate_httputil "github.com/ggmolly/claude-gate/internal/httputil"
 	"github.com/ggmolly/claude-gate/internal/store"
 	"github.com/ggmolly/claude-gate/internal/token"
 )
@@ -26,14 +28,16 @@ type usageEntry struct {
 // Claude API upstream, replacing gate tokens with real tokens and
 // tapping SSE streams to extract usage information.
 type ProxyHandler struct {
-	store       *store.Store
-	tokenMgr    *token.Manager
-	upstreamURL *url.URL
-	usageCh     chan<- usageEntry
+	store        *store.Store
+	tokenMgr     *token.Manager
+	upstreamURL  *url.URL
+	usageCh      chan<- usageEntry
+	logger       *slog.Logger
+	droppedCount atomic.Int64
 }
 
 // NewProxyHandler creates a new ProxyHandler.
-func NewProxyHandler(s *store.Store, mgr *token.Manager, upstream string, usageCh chan<- usageEntry) (*ProxyHandler, error) {
+func NewProxyHandler(s *store.Store, mgr *token.Manager, upstream string, usageCh chan<- usageEntry, logger *slog.Logger) (*ProxyHandler, error) {
 	u, err := url.Parse(upstream)
 	if err != nil {
 		return nil, err
@@ -43,6 +47,7 @@ func NewProxyHandler(s *store.Store, mgr *token.Manager, upstream string, usageC
 		tokenMgr:    mgr,
 		upstreamURL: u,
 		usageCh:     usageCh,
+		logger:      logger,
 	}, nil
 }
 
@@ -50,22 +55,22 @@ func (h *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Extract Bearer token.
 	authHeader := r.Header.Get("Authorization")
 	if !strings.HasPrefix(authHeader, "Bearer ") {
-		writeJSONError(w, http.StatusUnauthorized, "missing or invalid Authorization header")
+		gate_httputil.WriteJSONError(w, http.StatusUnauthorized, "missing or invalid Authorization header")
 		return
 	}
 	gateTokenStr := strings.TrimPrefix(authHeader, "Bearer ")
 
 	// Look up gate token.
-	gt, err := h.store.GetGateTokenByToken(gateTokenStr)
+	gt, err := h.store.GetGateTokenByToken(r.Context(), gateTokenStr)
 	if err != nil || !gt.IsActive {
-		writeJSONError(w, http.StatusUnauthorized, "invalid or inactive gate token")
+		gate_httputil.WriteJSONError(w, http.StatusUnauthorized, "invalid or inactive gate token")
 		return
 	}
 
 	// Resolve real token.
-	realToken, err := h.tokenMgr.ResolveToken(gt.ID)
+	realToken, err := h.tokenMgr.ResolveToken(r.Context(), gt.ID)
 	if err != nil {
-		writeJSONError(w, http.StatusBadGateway, "no available upstream tokens")
+		gate_httputil.WriteJSONError(w, http.StatusBadGateway, "no available upstream tokens")
 		return
 	}
 
@@ -96,10 +101,21 @@ func (h *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				h.sendUsage(gt.ID, realToken.ID, usage, r.URL.Path, resp.StatusCode)
 				resp.Body = io.NopCloser(strings.NewReader(string(body)))
 			}
+
+			// Record failure for upstream 5xx responses.
+			if resp.StatusCode >= 500 {
+				if rfErr := h.tokenMgr.RecordFailure(r.Context(), realToken.ID); rfErr != nil {
+					h.logger.Error("failed to record failure", "real_token", realToken.ID, "error", rfErr)
+				}
+			}
+
 			return nil
 		},
 		ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
-			writeJSONError(w, http.StatusBadGateway, "upstream error: "+err.Error())
+			gate_httputil.WriteJSONError(w, http.StatusBadGateway, "upstream error: "+err.Error())
+			if rfErr := h.tokenMgr.RecordFailure(r.Context(), realToken.ID); rfErr != nil {
+				h.logger.Error("failed to record failure", "real_token", realToken.ID, "error", rfErr)
+			}
 		},
 	}
 
@@ -116,19 +132,15 @@ func (h *ProxyHandler) sendUsage(gateTokenID, realTokenID string, usage UsageDat
 		StatusCode:  statusCode,
 	}:
 	default:
-		log.Printf("usage channel full, dropping entry for gate=%s", gateTokenID)
+		h.droppedCount.Add(1)
+		h.logger.Warn("usage channel full, dropping entry", "gate", gateTokenID)
 	}
 }
 
 // jsonUsageEnvelope extracts usage from a non-streaming JSON response.
 type jsonUsageEnvelope struct {
-	Model string `json:"model"`
-	Usage struct {
-		InputTokens              int64 `json:"input_tokens"`
-		OutputTokens             int64 `json:"output_tokens"`
-		CacheCreationInputTokens int64 `json:"cache_creation_input_tokens"`
-		CacheReadInputTokens     int64 `json:"cache_read_input_tokens"`
-	} `json:"usage"`
+	Model string      `json:"model"`
+	Usage usageFields `json:"usage"`
 }
 
 func extractJSONUsage(body []byte) UsageData {
@@ -145,8 +157,7 @@ func extractJSONUsage(body []byte) UsageData {
 	}
 }
 
-func writeJSONError(w http.ResponseWriter, code int, msg string) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(code)
-	_ = json.NewEncoder(w).Encode(map[string]string{"error": msg})
+// DroppedCount returns the number of usage entries dropped due to a full channel.
+func (h *ProxyHandler) DroppedCount() int64 {
+	return h.droppedCount.Load()
 }

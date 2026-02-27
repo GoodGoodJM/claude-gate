@@ -6,10 +6,14 @@
 </div>
 
 <div id="add-form" style="display:none; margin-bottom:1rem;">
-	<form method="POST" action="/admin/gate-tokens/create" class="card">
+	<form method="POST" action="/admin/api/gate-tokens" class="card">
 		<div class="form-group">
 			<label for="name">Name</label>
 			<input type="text" id="name" name="name" placeholder="e.g. agent-1" required>
+		</div>
+		<div class="form-group">
+			<label for="token">Custom Token (optional)</label>
+			<input type="text" id="token" name="token" placeholder="e.g. gate-hello (leave empty for auto-generated)">
 		</div>
 		<button type="submit" class="btn btn-primary">Create</button>
 		<button type="button" class="btn" onclick="document.getElementById('add-form').style.display='none'">Cancel</button>
@@ -31,6 +35,7 @@
 <table>
 	<thead>
 		<tr>
+			<th>ID</th>
 			<th>Name</th>
 			<th>Token</th>
 			<th>Status</th>
@@ -45,6 +50,7 @@
 	<tbody>
 		{{range .Tokens}}
 		<tr>
+			<td class="mono text-muted">{{slice .ID 0 8}}</td>
 			<td>{{.Name}}</td>
 			<td class="mono">{{slice .Token 0 10}}...</td>
 			<td>
@@ -61,21 +67,19 @@
 			<td class="text-muted">{{.CreatedAt.Format "2006-01-02 15:04"}}</td>
 			<td>
 				{{if .IsActive}}
-				<form class="inline" method="POST" action="/admin/gate-tokens/{{.ID}}/deactivate">
+				<form class="inline" method="POST" action="/admin/api/gate-tokens/{{.ID}}/deactivate">
 					<button type="submit" class="btn btn-sm">Deactivate</button>
 				</form>
 				{{else}}
-				<form class="inline" method="POST" action="/admin/gate-tokens/{{.ID}}/activate">
+				<form class="inline" method="POST" action="/admin/api/gate-tokens/{{.ID}}/activate">
 					<button type="submit" class="btn btn-sm btn-primary">Activate</button>
 				</form>
 				{{end}}
-				<form class="inline" method="POST" action="/admin/gate-tokens/{{.ID}}/delete" onsubmit="return confirm('Delete this token?')">
-					<button type="submit" class="btn btn-sm btn-danger">Delete</button>
-				</form>
+				<button class="btn btn-sm btn-danger" hx-delete="/admin/api/gate-tokens/{{.ID}}" hx-confirm="Delete this token?">Delete</button>
 			</td>
 		</tr>
 		{{else}}
-		<tr><td colspan="9" class="text-muted">No gate tokens created.</td></tr>
+		<tr><td colspan="10" class="text-muted">No gate tokens created.</td></tr>
 		{{end}}
 	</tbody>
 </table>
