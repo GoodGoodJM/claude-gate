@@ -37,6 +37,8 @@
 			<th>Failures</th>
 			<th>Input Tokens</th>
 			<th>Output Tokens</th>
+			<th>Cache Creation</th>
+			<th>Cache Read</th>
 			<th>Last Used</th>
 			<th>Actions</th>
 		</tr>
@@ -56,6 +58,8 @@
 			<td>{{.FailureCount}}</td>
 			<td>{{.TotalInputTokens}}</td>
 			<td>{{.TotalOutputTokens}}</td>
+			<td>{{with index $.CacheStats .ID}}{{.CacheCreationInputTokens}}{{else}}0{{end}}</td>
+			<td>{{with index $.CacheStats .ID}}{{.CacheReadInputTokens}}{{else}}0{{end}}</td>
 			<td class="text-muted">{{if .LastUsedAt}}{{.LastUsedAt.Format "2006-01-02 15:04"}}{{else}}-{{end}}</td>
 			<td>
 				{{if .IsActive}}
@@ -71,7 +75,7 @@
 			</td>
 		</tr>
 		{{else}}
-		<tr><td colspan="8" class="text-muted">No real tokens configured.</td></tr>
+		<tr><td colspan="10" class="text-muted">No real tokens configured.</td></tr>
 		{{end}}
 	</tbody>
 </table>
